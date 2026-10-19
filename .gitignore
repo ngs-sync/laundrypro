@@ -1,0 +1,29 @@
+# Environment & Rahasia Kredensial (Wajib)
+.env
+.env.*
+!.env.example
+
+# Direktori Dependensi & Build
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Cache Sistem & Log
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.vite/
+dev-dist/
+
+# Pengaturan Editor & Perangkat
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+
+# Deployment
+.vercel
