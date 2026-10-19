@@ -179,24 +179,24 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 text-slate-800 pb-20">
+  <div class="min-h-screen bg-[#F8FAFC] text-[#0F172A] pb-24">
     <!-- Header Page -->
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 px-4 py-3 shadow-xs">
+    <header class="bg-white border-b border-[#E2E8F0] sticky top-0 z-10 px-4 py-3.5 shadow-xs">
       <div class="max-w-md mx-auto flex items-center justify-between">
         <div>
-          <h1 class="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+          <h1 class="text-lg font-extrabold text-[#0F172A] tracking-tight flex items-center gap-2">
             <span>⚖️</span>
             <span>Rekonsiliasi Shift</span>
           </h1>
-          <p class="text-xs text-slate-500">
+          <p class="text-xs text-[#64748B]">
             {{ authStore.activeTenant?.name || 'Toko Laundry' }}
           </p>
         </div>
-        <div v-if="authStore.activeShift" class="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-200 text-xs font-bold">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <div v-if="authStore.activeShift" class="flex items-center gap-1.5 bg-[#ECFDF5] text-[#00422B] px-3 py-1 rounded-full border border-[#10B981]/30 text-xs font-bold">
+          <span class="w-2 h-2 rounded-full bg-[#10B981] animate-pulse"></span>
           <span>Shift Aktif</span>
         </div>
-        <div v-else class="flex items-center gap-1.5 bg-slate-100 text-slate-600 px-3 py-1 rounded-full border border-slate-200 text-xs font-bold">
+        <div v-else class="flex items-center gap-1.5 bg-[#F8FAFC] text-[#64748B] px-3 py-1 rounded-full border border-[#E2E8F0] text-xs font-bold">
           <span>Shift Ditutup</span>
         </div>
       </div>
@@ -204,58 +204,58 @@ onMounted(() => {
 
     <main class="max-w-md mx-auto p-4 flex flex-col gap-5">
       <!-- SUMMARY MODAL AFTER CLOSE SHIFT -->
-      <div v-if="shiftClosedSummary" class="bg-white rounded-2xl p-5 border border-emerald-200 shadow-lg flex flex-col gap-4 animate-fade-in">
-        <div class="flex items-center gap-3 border-b border-slate-100 pb-3">
-          <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl font-black">
+      <div v-if="shiftClosedSummary" class="bg-white rounded-xl p-5 border border-[#10B981] shadow-lg flex flex-col gap-4 animate-fade-in">
+        <div class="flex items-center gap-3 border-b border-[#E2E8F0] pb-3">
+          <div class="w-12 h-12 rounded-xl bg-[#ECFDF5] text-[#10B981] flex items-center justify-center text-2xl font-black border border-[#10B981]/30">
             ✅
           </div>
           <div>
-            <h2 class="text-base font-extrabold text-slate-900">Rekonsiliasi Shift Selesai</h2>
-            <p class="text-xs text-slate-500">{{ formatDate(shiftClosedSummary.closed_at) }}</p>
+            <h2 class="text-base font-extrabold text-[#0F172A]">Rekonsiliasi Shift Selesai</h2>
+            <p class="text-xs text-[#64748B] font-mono">{{ formatDate(shiftClosedSummary.closed_at) }}</p>
           </div>
         </div>
 
-        <div class="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+        <div class="space-y-2.5 bg-[#F8FAFC] p-4 rounded-lg border border-[#E2E8F0] text-xs">
           <div class="flex justify-between">
-            <span class="text-slate-500">Toko:</span>
-            <span class="font-bold text-slate-800">{{ shiftClosedSummary.tenant_name }}</span>
+            <span class="text-[#64748B]">Toko:</span>
+            <span class="font-bold text-[#0F172A]">{{ shiftClosedSummary.tenant_name }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Waktu Buka:</span>
-            <span class="font-bold text-slate-800">{{ formatDate(shiftClosedSummary.opened_at) }}</span>
+            <span class="text-[#64748B]">Waktu Buka:</span>
+            <span class="font-bold font-mono text-[#0F172A]">{{ formatDate(shiftClosedSummary.opened_at) }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Uang Fisik Kasir:</span>
-            <span class="font-bold font-mono text-slate-900">{{ formatCurrency(shiftClosedSummary.actual_cash) }}</span>
+            <span class="text-[#64748B]">Uang Fisik Kasir:</span>
+            <span class="font-bold font-mono text-[#0F172A] tabular-nums">{{ formatCurrency(shiftClosedSummary.actual_cash) }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Selisih Uang Tunai:</span>
-            <span :class="['font-bold font-mono', shiftClosedSummary.cash_difference >= 0 ? 'text-emerald-600' : 'text-rose-600']">
+            <span class="text-[#64748B]">Selisih Uang Tunai:</span>
+            <span :class="['font-bold font-mono tabular-nums', shiftClosedSummary.cash_difference >= 0 ? 'text-[#10B981]' : 'text-[#F43F5E]']">
               {{ shiftClosedSummary.cash_difference >= 0 ? '+' : '' }}{{ formatCurrency(shiftClosedSummary.cash_difference) }}
             </span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Selisih Koin Fisik:</span>
-            <span :class="['font-bold font-mono', shiftClosedSummary.coin_difference >= 0 ? 'text-emerald-600' : 'text-rose-600']">
+            <span class="text-[#64748B]">Selisih Koin Fisik:</span>
+            <span :class="['font-bold font-mono tabular-nums', shiftClosedSummary.coin_difference >= 0 ? 'text-[#10B981]' : 'text-[#F43F5E]']">
               {{ shiftClosedSummary.coin_difference >= 0 ? '+' : '' }}{{ shiftClosedSummary.coin_difference }} koin
             </span>
           </div>
-          <div v-if="shiftClosedSummary.notes" class="pt-2 border-t border-slate-200">
-            <span class="text-slate-500 block mb-0.5">Catatan:</span>
-            <p class="text-slate-700 italic bg-white p-2 rounded-lg border border-slate-200">{{ shiftClosedSummary.notes }}</p>
+          <div v-if="shiftClosedSummary.notes" class="pt-2 border-t border-[#E2E8F0]">
+            <span class="text-[#64748B] block mb-0.5">Catatan:</span>
+            <p class="text-[#0F172A] italic bg-white p-2 rounded border border-[#E2E8F0]">{{ shiftClosedSummary.notes }}</p>
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-2 pt-2">
           <button
             @click="resetSummaryView"
-            class="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-sm transition-all"
+            class="w-full py-3.5 bg-[#F8FAFC] hover:bg-slate-200 text-[#0F172A] font-bold rounded-lg text-sm border border-[#E2E8F0] active:translate-y-[1px] transition-all min-h-[48px]"
           >
             Buka Shift Baru
           </button>
           <button
             @click="router.push('/')"
-            class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm transition-all shadow-md"
+            class="w-full py-3.5 bg-[#10B981] hover:bg-[#059669] text-white font-bold rounded-lg text-sm border-b-2 border-[#059669] active:translate-y-[2px] transition-all shadow-md min-h-[48px]"
           >
             Kembali ke Kasir
           </button>
@@ -263,55 +263,55 @@ onMounted(() => {
       </div>
 
       <!-- STATE 1: Buka Shift Form (if activeShift is null) -->
-      <section v-else-if="!authStore.activeShift" class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-4">
-        <div class="border-b border-slate-100 pb-3">
-          <h2 class="text-base font-extrabold text-slate-900 flex items-center gap-2">
+      <section v-else-if="!authStore.activeShift" class="bg-white p-5 rounded-lg border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
+        <div class="border-b border-[#E2E8F0] pb-3">
+          <h2 class="text-base font-extrabold text-[#0F172A] flex items-center gap-2">
             <span>🔓</span>
             <span>Form Buka Shift Kasir</span>
           </h2>
-          <p class="text-xs text-slate-500 mt-0.5">Masukkan modal uang tunai dan stok koin awal sebelum memulai transaksi kasir.</p>
+          <p class="text-xs text-[#64748B] mt-0.5">Masukkan modal uang tunai dan stok koin awal sebelum transaksi.</p>
         </div>
 
-        <div class="flex flex-col gap-3">
+        <div class="flex flex-col gap-3.5">
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <label class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1">
               Modal Uang Tunai Awal (Rp)
             </label>
             <div class="relative">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-sm">Rp</span>
+              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-[#64748B] text-sm font-mono">Rp</span>
               <input
                 v-model.number="openInitialCash"
                 type="number"
                 min="0"
                 step="5000"
-                class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold font-mono focus:outline-none focus:border-emerald-500"
+                class="w-full pl-11 pr-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-lg font-bold font-mono tabular-nums text-[#0F172A] focus:outline-none focus:border-[#10B981]"
                 placeholder="100000"
               />
             </div>
-            <p class="text-[11px] text-slate-400 mt-1">Uang kembalian yang disiapkan di laci kasir.</p>
+            <p class="text-[11px] text-[#64748B] mt-1">Uang kembalian yang disiapkan di laci kasir.</p>
           </div>
 
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+            <label class="block text-xs font-bold uppercase tracking-wider text-[#64748B] mb-1">
               Stok Koin Fisik Awal (pcs)
             </label>
             <div class="relative">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">🪙</span>
+              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#64748B] text-base">🪙</span>
               <input
                 v-model.number="openInitialCoins"
                 type="number"
                 min="0"
-                class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold font-mono focus:outline-none focus:border-emerald-500"
+                class="w-full pl-11 pr-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-lg font-bold font-mono tabular-nums text-[#0F172A] focus:outline-none focus:border-[#10B981]"
                 placeholder="50"
               />
             </div>
-            <p class="text-[11px] text-slate-400 mt-1">Jumlah token/koin fisik awal di tempat koin.</p>
+            <p class="text-[11px] text-[#64748B] mt-1">Jumlah token/koin fisik awal di tempat koin.</p>
           </div>
         </div>
 
         <button
           @click="handleOpenShift"
-          class="w-full mt-2 py-4 bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-extrabold rounded-xl shadow-lg transition-all text-base flex items-center justify-center gap-2"
+          class="w-full mt-2 h-14 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold rounded-lg border-b-2 border-[#059669] shadow-lg active:translate-y-[2px] transition-all text-base flex items-center justify-center gap-2 min-h-[56px]"
         >
           <span>🚀</span>
           <span>Buka Shift Sekarang</span>
@@ -321,16 +321,16 @@ onMounted(() => {
       <!-- STATE 2: Tutup Shift & Audit Selisih (if activeShift is set) -->
       <div v-else class="flex flex-col gap-5">
         <!-- Info Active Shift -->
-        <div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-4 rounded-2xl shadow-md flex items-center justify-between">
+        <div class="bg-[#0F172A] text-white p-4 rounded-lg shadow-md flex items-center justify-between border border-slate-800">
           <div>
-            <span class="text-xs text-slate-400 block font-medium">Shift Dibatasi Oleh</span>
-            <span class="text-sm font-bold text-emerald-400 block">{{ authStore.currentUser?.name || 'Kasir Staf' }}</span>
-            <span class="text-[11px] text-slate-400 mt-1 block">Buka: {{ formatDate(authStore.activeShift.openedAt) }}</span>
+            <span class="text-xs text-slate-400 block font-medium">Petugas Shift</span>
+            <span class="text-sm font-bold text-[#10B981] block">{{ authStore.currentUser?.name || 'Kasir Staf' }}</span>
+            <span class="text-[11px] text-slate-400 mt-0.5 block font-mono">Buka: {{ formatDate(authStore.activeShift.openedAt) }}</span>
           </div>
           <button
             @click="fetchShiftMetrics"
             :disabled="isLoadingMetrics"
-            class="px-3 py-1.5 bg-slate-700/80 hover:bg-slate-700 rounded-lg text-xs font-medium text-slate-200 flex items-center gap-1 border border-slate-600"
+            class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold text-slate-200 flex items-center gap-1 border border-slate-700 min-h-[40px]"
           >
             <span :class="{'animate-spin': isLoadingMetrics}">🔄</span>
             <span>Refresh</span>
@@ -338,116 +338,118 @@ onMounted(() => {
         </div>
 
         <!-- Kalkulasi Sistem -->
-        <section class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-3">
-          <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-            <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+        <section class="bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-xs flex flex-col gap-3">
+          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+            <h2 class="text-xs font-extrabold uppercase tracking-wider text-[#64748B] flex items-center gap-1">
               <span>🖥️</span>
               <span>Kalkulasi Sistem</span>
             </h2>
-            <span class="text-[11px] text-slate-400">Otomatis dari Transaksi</span>
+            <span class="text-[11px] text-[#64748B]">Otomatis</span>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
-            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span class="text-[11px] text-slate-500 block">Modal Awal Tunai</span>
-              <span class="text-sm font-bold font-mono text-slate-800">{{ formatCurrency(authStore.activeShift.initialCash) }}</span>
+            <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
+              <span class="text-[11px] text-[#64748B] block">Modal Awal Tunai</span>
+              <span class="text-sm font-bold font-mono tabular-nums text-[#0F172A]">{{ formatCurrency(authStore.activeShift.initialCash) }}</span>
             </div>
-            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span class="text-[11px] text-slate-500 block">Penjualan Tunai</span>
-              <span class="text-sm font-bold font-mono text-emerald-600">+ {{ formatCurrency(systemCash) }}</span>
+            <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
+              <span class="text-[11px] text-[#64748B] block">Penjualan Tunai</span>
+              <span class="text-sm font-bold font-mono tabular-nums text-[#10B981]">+ {{ formatCurrency(systemCash) }}</span>
             </div>
           </div>
 
-          <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between">
+          <div class="bg-[#ECFDF5] border border-[#10B981]/30 p-3 rounded-lg flex items-center justify-between">
             <div>
-              <span class="text-xs font-bold text-emerald-900 block">Ekspektasi Kas Tunai Sistem</span>
-              <span class="text-xs text-emerald-700">(Modal Awal + Omzet Tunai)</span>
+              <span class="text-xs font-bold text-[#00422B] block">Ekspektasi Kas Tunai Sistem</span>
+              <span class="text-[11px] text-emerald-800">(Modal Awal + Omzet Tunai)</span>
             </div>
-            <span class="text-base font-black font-mono text-emerald-800">{{ formatCurrency(expectedCash) }}</span>
+            <span class="text-base font-black font-mono tabular-nums text-[#00422B]">{{ formatCurrency(expectedCash) }}</span>
           </div>
 
           <div class="grid grid-cols-2 gap-3 pt-1">
-            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span class="text-[11px] text-slate-500 block">Stok Koin Awal</span>
-              <span class="text-sm font-bold font-mono text-slate-800">{{ authStore.activeShift.initialCoins }} koin</span>
+            <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
+              <span class="text-[11px] text-[#64748B] block">Stok Koin Awal</span>
+              <span class="text-sm font-bold font-mono tabular-nums text-[#0F172A]">{{ authStore.activeShift.initialCoins }} koin</span>
             </div>
-            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span class="text-[11px] text-slate-500 block">Koin Keluar (Terpakai)</span>
-              <span class="text-sm font-bold font-mono text-amber-600">- {{ systemCoins }} koin</span>
+            <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
+              <span class="text-[11px] text-[#64748B] block">Koin Terpakai</span>
+              <span class="text-sm font-bold font-mono tabular-nums text-[#F59E0B]">- {{ systemCoins }} koin</span>
             </div>
           </div>
 
-          <div class="bg-teal-50 border border-teal-200 p-3 rounded-xl flex items-center justify-between">
+          <div class="bg-[#ECFDF5] border border-[#10B981]/30 p-3 rounded-lg flex items-center justify-between">
             <div>
-              <span class="text-xs font-bold text-teal-900 block">Ekspektasi Stok Koin Fisik</span>
-              <span class="text-xs text-teal-700">(Sisa koin seharusnya)</span>
+              <span class="text-xs font-bold text-[#00422B] block">Ekspektasi Stok Koin Fisik</span>
+              <span class="text-[11px] text-emerald-800">(Sisa koin seharusnya)</span>
             </div>
-            <span class="text-base font-black font-mono text-teal-800">{{ expectedCoins }} koin</span>
+            <span class="text-base font-black font-mono tabular-nums text-[#00422B]">{{ expectedCoins }} koin</span>
           </div>
         </section>
 
-        <!-- Audit Uang Fisik Riil & Selisih -->
-        <section class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col gap-4">
-          <div class="border-b border-slate-100 pb-2">
-            <h2 class="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+        <!-- Audit Uang Fisik Riil & Cash Deficit Indicator (Stitch Spec) -->
+        <section class="bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
+          <div class="border-b border-[#E2E8F0] pb-2">
+            <h2 class="text-xs font-extrabold uppercase tracking-wider text-[#64748B] flex items-center gap-1">
               <span>🔍</span>
               <span>Audit Uang Fisik & Selisih</span>
             </h2>
-            <p class="text-[11px] text-slate-400">Hitung total uang fisik dan koin riil yang ada di meja kasir saat ini.</p>
+            <p class="text-[11px] text-[#64748B]">Hitung total uang fisik dan koin riil di laci kasir saat ini.</p>
           </div>
 
           <!-- Input Uang Fisik -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">
+            <label class="block text-xs font-bold text-[#0F172A] mb-1">
               Uang Fisik Riil di Laci Kasir (Rp)
             </label>
             <input
               v-model.number="actualCash"
               type="number"
               step="1000"
-              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold font-mono text-slate-900 focus:outline-none focus:border-emerald-500"
+              class="w-full px-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-lg font-bold font-mono tabular-nums text-[#0F172A] focus:outline-none focus:border-[#10B981]"
             />
           </div>
 
-          <!-- Diff Badge Cash -->
+          <!-- CASH REGISTER DEFICIT / DISCREPANCY INDICATOR (Stitch Component Spec 5) -->
           <div :class="[
-            'p-3 rounded-xl border flex items-center justify-between transition-all',
-            cashDifference >= 0
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-              : 'bg-rose-50 border-rose-300 text-rose-800'
+            'p-4 rounded-lg border-2 flex items-center justify-between transition-all',
+            cashDifference < 0
+              ? 'bg-[#FFF1F2] border-[#F43F5E] text-[#9F1239]'
+              : 'bg-[#ECFDF5] border-[#10B981] text-[#00422B]'
           ]">
-            <div class="flex items-center gap-2">
-              <span class="text-lg">{{ cashDifference >= 0 ? '🟢' : '🔴' }}</span>
+            <div class="flex items-center gap-2.5">
+              <span class="text-2xl">{{ cashDifference < 0 ? '🚨' : '🟢' }}</span>
               <div>
-                <span class="text-xs font-bold block">Selisih Uang Tunai</span>
+                <span class="text-xs font-extrabold uppercase tracking-wider block">
+                  {{ cashDifference < 0 ? 'Defisit / Discrepancy Kasir' : 'Selisih Uang Tunai' }}
+                </span>
                 <span class="text-[11px] opacity-80">
-                  {{ cashDifference >= 0 ? 'Kasir Seimbang / Lebih' : 'Kasir Defisit / Minus' }}
+                  {{ cashDifference < 0 ? 'Defisit terdeteksi pada laci kasir' : 'Kasir Seimbang / Tepat' }}
                 </span>
               </div>
             </div>
-            <span class="text-base font-black font-mono">
+            <span class="text-2xl font-bold font-mono tabular-nums tracking-tight">
               {{ cashDifference >= 0 ? '+' : '' }}{{ formatCurrency(cashDifference) }}
             </span>
           </div>
 
           <!-- Input Koin Fisik -->
           <div class="pt-1">
-            <label class="block text-xs font-bold text-slate-700 mb-1">
+            <label class="block text-xs font-bold text-[#0F172A] mb-1">
               Koin Fisik Riil (pcs)
             </label>
             <input
               v-model.number="actualCoins"
               type="number"
-              class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold font-mono text-slate-900 focus:outline-none focus:border-emerald-500"
+              class="w-full px-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-lg font-bold font-mono tabular-nums text-[#0F172A] focus:outline-none focus:border-[#10B981]"
             />
           </div>
 
           <!-- Diff Badge Coin -->
           <div :class="[
-            'p-3 rounded-xl border flex items-center justify-between transition-all',
-            coinDifference >= 0
-              ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-              : 'bg-rose-50 border-rose-300 text-rose-800'
+            'p-3.5 rounded-lg border flex items-center justify-between transition-all',
+            coinDifference < 0
+              ? 'bg-[#FFF1F2] border-[#F43F5E]/40 text-[#9F1239]'
+              : 'bg-[#ECFDF5] border-[#10B981]/40 text-[#00422B]'
           ]">
             <div class="flex items-center gap-2">
               <span class="text-lg">{{ coinDifference >= 0 ? '🟢' : '🔴' }}</span>
@@ -458,29 +460,29 @@ onMounted(() => {
                 </span>
               </div>
             </div>
-            <span class="text-base font-black font-mono">
+            <span class="text-base font-bold font-mono tabular-nums">
               {{ coinDifference >= 0 ? '+' : '' }}{{ coinDifference }} koin
             </span>
           </div>
 
           <!-- Catatan Audit -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 mb-1">
+            <label class="block text-xs font-bold text-[#0F172A] mb-1">
               Catatan Rekonsiliasi (Opsional)
             </label>
             <textarea
               v-model="notes"
               rows="2"
               placeholder="Contoh: Selisih Rp 2.000 karena tidak ada kembalian koin pecahan kecil"
-              class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 resize-none"
+              class="w-full p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs focus:outline-none focus:border-[#10B981] resize-none"
             ></textarea>
           </div>
 
-          <!-- Action Button Close Shift -->
+          <!-- Action Button Close Shift (Min 52px height) -->
           <button
             @click="handleCloseShift"
             :disabled="isSubmitting"
-            class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-white font-extrabold rounded-2xl text-lg shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-75"
+            class="w-full h-14 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold rounded-lg border-b-2 border-[#059669] text-lg shadow-lg active:translate-y-[2px] transition-all flex items-center justify-center gap-2 disabled:opacity-75 min-h-[56px]"
           >
             <span v-if="isSubmitting" class="flex items-center gap-2">
               <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

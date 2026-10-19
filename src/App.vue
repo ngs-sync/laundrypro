@@ -12,28 +12,28 @@ function handleStopImpersonation() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
-    <!-- FLOATING IMPERSONATION BANNER -->
+  <div class="min-h-screen bg-[#F8FAFC] flex flex-col font-sans text-[#0F172A]">
+    <!-- FLOATING IMPERSONATION BANNER (Stitch Design System Spec) -->
     <div
       v-if="authStore.isImpersonating"
-      class="bg-orange-600 text-white px-4 py-2.5 text-xs sm:text-sm font-bold shadow-md sticky top-0 z-50 flex items-center justify-between gap-2 border-b border-orange-700"
+      class="bg-[#F59E0B] text-[#78350F] px-4 py-2.5 text-xs sm:text-sm font-bold shadow-md sticky top-0 z-50 flex items-center justify-between gap-2 border-b border-[#D97706]"
     >
       <div class="flex items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
         <span class="text-base">⚠️</span>
-        <span>Mode Superadmin: Sedang mengakses data toko <strong class="underline font-black text-amber-200">{{ authStore.activeTenant?.name }}</strong></span>
+        <span>Mode Superadmin: Sedang mengakses data toko <strong class="underline font-black">{{ authStore.activeTenant?.name }}</strong></span>
       </div>
 
       <button
         @click="handleStopImpersonation"
-        class="bg-white text-orange-700 hover:bg-orange-50 px-3 py-1 rounded-lg font-black text-xs shadow-xs transition-all whitespace-nowrap flex items-center gap-1 active:scale-95"
+        class="bg-[#78350F] hover:bg-[#5c280b] text-white px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-sm transition-all whitespace-nowrap flex items-center gap-1 active:translate-y-[2px]"
       >
         <span>↩️</span>
-        <span>Kembali ke Superadmin</span>
+        <span>Keluar Impersonasi</span>
       </button>
     </div>
 
     <!-- MAIN APP NAVIGATION BAR -->
-    <nav class="bg-slate-900 text-white px-4 py-2 border-b border-slate-800 flex items-center justify-between shadow-xs z-30">
+    <nav class="bg-[#0F172A] text-white px-4 py-2.5 border-b border-slate-800 flex items-center justify-between shadow-xs z-30">
       <div class="flex items-center gap-2">
         <span class="text-xl">🧺</span>
         <span class="font-black text-sm tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
@@ -48,7 +48,7 @@ function handleStopImpersonation() {
           :class="[
             'px-3 py-1.5 rounded-lg transition-all',
             route.path === '/'
-              ? 'bg-emerald-500 text-white shadow-xs'
+              ? 'bg-[#10B981] text-white shadow-xs'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
           ]"
         >
@@ -60,7 +60,7 @@ function handleStopImpersonation() {
           :class="[
             'px-3 py-1.5 rounded-lg transition-all',
             route.path === '/shift'
-              ? 'bg-emerald-500 text-white shadow-xs'
+              ? 'bg-[#10B981] text-white shadow-xs'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
           ]"
         >
@@ -73,7 +73,7 @@ function handleStopImpersonation() {
           :class="[
             'px-3 py-1.5 rounded-lg transition-all',
             route.path === '/superadmin'
-              ? 'bg-emerald-500 text-white shadow-xs'
+              ? 'bg-[#10B981] text-white shadow-xs'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
           ]"
         >
