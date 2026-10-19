@@ -184,28 +184,27 @@ export const useCartStore = defineStore('cart', () => {
         customer_phone: custPhone,
         tenant_id: tenantId,
         user_id: userId,
-        status: 'lunas'
+        payment_status: 'paid',
+        production_status: 'processing'
       }
 
-      let insertedTxData = null
+      // Save transaction to Supabase
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert([transactionPayload])
+        .select()
 
-      // Attempt to save into Supabase
-      try {
-        const { data, error } = await supabase
-          .from('transactions')
-          .insert([transactionPayload])
-          .select()
-
-        if (error) {
-          console.error('Supabase insert transaction error:', error)
-        } else if (data && data.length > 0) {
-          insertedTxData = data[0]
-        }
-      } catch (dbErr) {
-        console.error('Database error when saving transaction:', dbErr)
+      if (error) {
+        console.error('Supabase insert transaction error:', error)
+        throw new Error(error.message || 'Gagal menyimpan transaksi ke database.')
       }
 
-      const txId = insertedTxData?.id || `local-tx-${Date.now()}`
+      if (!data || data.length === 0) {
+        throw new Error('Gagal menyimpan transaksi: Tidak ada data dikembalikan dari database.')
+      }
+
+      const insertedTxData = data[0]
+      const txId = insertedTxData.id
 
       // Save transaction items
       const itemsPayload = currentItems.map(item => ({
@@ -217,18 +216,13 @@ export const useCartStore = defineStore('cart', () => {
         tenant_id: tenantId
       }))
 
-      try {
-        if (insertedTxData?.id) {
-          const { error: itemsErr } = await supabase
-            .from('transaction_items')
-            .insert(itemsPayload)
+      const { error: itemsErr } = await supabase
+        .from('transaction_items')
+        .insert(itemsPayload)
 
-          if (itemsErr) {
-            console.error('Supabase insert transaction_items error:', itemsErr)
-          }
-        }
-      } catch (itemsErr) {
-        console.error('Database error when saving transaction_items:', itemsErr)
+      if (itemsErr) {
+        console.error('Supabase insert transaction_items error:', itemsErr)
+        throw new Error(itemsErr.message || 'Gagal menyimpan detail item transaksi ke database.')
       }
 
       const resultTransaction = {
@@ -239,8 +233,10 @@ export const useCartStore = defineStore('cart', () => {
         service_type: serviceType,
         customer_name: custName,
         customer_phone: custPhone,
+        payment_status: 'paid',
+        production_status: 'processing',
         status: 'lunas',
-        created_at: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        created_at: insertedTxData.created_at || new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
         items: currentItems
       }
 
