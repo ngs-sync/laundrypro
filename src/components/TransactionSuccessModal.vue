@@ -1,6 +1,13 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { generateReceiptPDF } from '../lib/pdfGenerator'
+import { computed, ref, watch } from "vue"
+import { generateReceiptPDF } from "../lib/pdfGenerator"
+import { getQueueNumber } from "../lib/escpos"
+import {
+  isPrinterConnected,
+  printBasketLabel,
+  printViaSystemDialog
+} from "../lib/bluetoothPrinter"
+import PrinterSettingsModal from "./PrinterSettingsModal.vue"
 
 const props = defineProps({
   show: {
@@ -13,48 +20,57 @@ const props = defineProps({
   },
   tenant: {
     type: Object,
-    default: () => ({ business_name: 'LaundryPro', phone_number: '' })
+    default: () => ({ business_name: "LaundryPro", phone_number: "" })
   }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(["close"])
 
 const isGeneratingPDF = ref(false)
-const receiptPdfUrl = ref('')
+const receiptPdfUrl = ref("")
 const pdfBlob = ref(null)
 const pdfDoc = ref(null)
 
+const isPrintingLabel = ref(false)
+const printSuccessMsg = ref("")
+const printErrMsg = ref("")
+const showPrinterSettings = ref(false)
+
 const formattedTotal = computed(() => {
-  if (!props.transaction || props.transaction.total_amount === undefined) return 'Rp 0'
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
+  if (!props.transaction || props.transaction.total_amount === undefined) return "Rp 0"
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
     minimumFractionDigits: 0
   }).format(props.transaction.total_amount)
 })
 
+const queueNumberStr = computed(() => {
+  return getQueueNumber(props.transaction)
+})
+
 const serviceTypeSummary = computed(() => {
-  if (!props.transaction) return 'Cuci Reguler'
-  if (props.transaction.service_type === 'koin') return 'Paket Koin Self-Service'
-  if (props.transaction.service_type === 'kiloan') return 'Layanan Cuci Kiloan'
-  if (props.transaction.service_type === 'mixed') return 'Paket Koin & Kiloan'
+  if (!props.transaction) return "Cuci Reguler"
+  if (props.transaction.service_type === "koin") return "Paket Koin Self-Service"
+  if (props.transaction.service_type === "kiloan") return "Layanan Cuci Kiloan"
+  if (props.transaction.service_type === "mixed") return "Paket Koin & Kiloan"
 
   if (props.transaction.items && props.transaction.items.length > 0) {
-    return props.transaction.items.map(i => i.name || i.service_name).join(', ')
+    return props.transaction.items.map(i => i.name || i.service_name).join(", ")
   }
-  return 'Layanan Laundry'
+  return "Layanan Laundry"
 })
 
 /**
  * Format phone number to international format without plus sign (e.g. 0812... -> 62812...)
  */
 function formatInternationalPhone(phone) {
-  if (!phone) return ''
-  let cleaned = String(phone).replace(/\D/g, '')
-  if (cleaned.startsWith('0')) {
-    cleaned = '62' + cleaned.substring(1)
-  } else if (cleaned.startsWith('8')) {
-    cleaned = '628' + cleaned.substring(1)
+  if (!phone) return ""
+  let cleaned = String(phone).replace(/\D/g, "")
+  if (cleaned.startsWith("0")) {
+    cleaned = "62" + cleaned.substring(1)
+  } else if (cleaned.startsWith("8")) {
+    cleaned = "628" + cleaned.substring(1)
   }
   return cleaned
 }
@@ -65,9 +81,11 @@ watch(
   async ([isShown, tx]) => {
     if (isShown && tx) {
       isGeneratingPDF.value = true
-      receiptPdfUrl.value = tx.receipt_pdf_url || ''
+      receiptPdfUrl.value = tx.receipt_pdf_url || ""
       pdfBlob.value = null
       pdfDoc.value = null
+      printSuccessMsg.value = ""
+      printErrMsg.value = ""
 
       try {
         const result = await generateReceiptPDF(tx, tx.items || [], props.tenant)
@@ -81,7 +99,7 @@ watch(
           pdfDoc.value = result.doc
         }
       } catch (err) {
-        console.error('Error generating PDF receipt:', err)
+        console.error("Error generating PDF receipt:", err)
       } finally {
         isGeneratingPDF.value = false
       }
@@ -90,18 +108,42 @@ watch(
   { immediate: true }
 )
 
+async function handlePrintBasketLabel() {
+  if (!props.transaction) return
+
+  isPrintingLabel.value = true
+  printSuccessMsg.value = ""
+  printErrMsg.value = ""
+
+  try {
+    if (isPrinterConnected()) {
+      await printBasketLabel(props.transaction)
+      printSuccessMsg.value = "Label keranjang berhasil dicetak via Bluetooth!"
+    } else {
+      // Fallback: system print dialog
+      printViaSystemDialog(props.transaction)
+      printSuccessMsg.value = "Membuka dialog cetak sistem browser..."
+    }
+  } catch (err) {
+    console.error("Gagal mencetak label keranjang:", err)
+    printErrMsg.value = err.message || "Gagal mencetak label. Gunakan fallback dialog sistem."
+  } finally {
+    isPrintingLabel.value = false
+  }
+}
+
 function sendWhatsAppReceipt() {
   if (!props.transaction) return
 
-  const customerName = props.transaction.customer_name || 'Pelanggan'
-  const tenantName = props.tenant?.business_name || 'LaundryPro'
-  const receiptNum = props.transaction.receipt_number || '-'
+  const customerName = props.transaction.customer_name || "Pelanggan"
+  const tenantName = props.tenant?.business_name || "LaundryPro"
+  const receiptNum = props.transaction.receipt_number || "-"
   const serviceType = serviceTypeSummary.value
   const totalAmount = formattedTotal.value
-  const paymentStatus = (props.transaction.status || props.transaction.payment_status || 'LUNAS').toUpperCase()
-  const pdfUrl = receiptPdfUrl.value || props.transaction.receipt_pdf_url || '-'
+  const paymentStatus = (props.transaction.status || props.transaction.payment_status || "LUNAS").toUpperCase()
+  const pdfUrl = receiptPdfUrl.value || props.transaction.receipt_pdf_url || "-"
 
-  const rawPhone = props.transaction.customer_phone || ''
+  const rawPhone = props.transaction.customer_phone || ""
   const formattedPhone = formatInternationalPhone(rawPhone)
 
   const messageText = `Halo Kak *${customerName}*, terima kasih telah mencuci di *${tenantName}*.
@@ -118,22 +160,22 @@ ${pdfUrl}`
     ? `https://wa.me/${formattedPhone}?text=${encodedMessage}`
     : `https://wa.me/?text=${encodedMessage}`
 
-  window.open(waUrl, '_blank')
+  window.open(waUrl, "_blank")
 }
 
 function downloadDirectPDF() {
   if (pdfDoc.value) {
-    const filename = `Struk_${props.transaction?.receipt_number || 'Laundry'}.pdf`
+    const filename = `Struk_${props.transaction?.receipt_number || "Laundry"}.pdf`
     pdfDoc.value.save(filename)
   } else if (receiptPdfUrl.value) {
-    window.open(receiptPdfUrl.value, '_blank')
+    window.open(receiptPdfUrl.value, "_blank")
   } else {
-    alert('PDF sedang diproses, silakan coba beberapa saat lagi.')
+    alert("PDF sedang diproses, silakan coba beberapa saat lagi.")
   }
 }
 
 function handleClose() {
-  emit('close')
+  emit("close")
 }
 </script>
 
@@ -154,21 +196,27 @@ function handleClose() {
         <div class="mt-1 flex items-center justify-center gap-2">
           <span class="text-xs text-slate-500">Status Pembayaran:</span>
           <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200 uppercase">
-            {{ transaction?.status || transaction?.payment_status || 'LUNAS' }}
+            {{ transaction?.status || transaction?.payment_status || "LUNAS" }}
           </span>
         </div>
+      </div>
+
+      <!-- Queue Number Display Badge -->
+      <div v-if="transaction" class="bg-teal-50 border border-teal-200 px-4 py-2 rounded-2xl flex items-center justify-between w-full">
+        <span class="text-xs font-bold text-teal-800 uppercase tracking-wider">Nomor Antrean Label</span>
+        <span class="text-xl font-black font-mono text-teal-700">#{{ queueNumberStr }}</span>
       </div>
 
       <!-- Transaction Details Card -->
       <div v-if="transaction" class="w-full bg-slate-50 p-4 rounded-2xl text-left text-xs flex flex-col gap-2.5 border border-slate-200">
         <div class="flex justify-between border-b border-slate-200 pb-2">
           <span class="text-slate-500 font-medium">No. Nota:</span>
-          <span class="font-bold text-slate-800 font-mono">{{ transaction.receipt_number || '-' }}</span>
+          <span class="font-bold text-slate-800 font-mono">{{ transaction.receipt_number || "-" }}</span>
         </div>
 
         <div class="flex justify-between border-b border-slate-200 pb-2">
           <span class="text-slate-500 font-medium">Nama Pelanggan:</span>
-          <span class="font-semibold text-slate-800">{{ transaction.customer_name || 'Pelanggan Umum' }}</span>
+          <span class="font-semibold text-slate-800">{{ transaction.customer_name || "Pelanggan Umum" }}</span>
         </div>
 
         <div v-if="transaction.customer_phone" class="flex justify-between border-b border-slate-200 pb-2">
@@ -178,7 +226,7 @@ function handleClose() {
 
         <div class="flex justify-between border-b border-slate-200 pb-2">
           <span class="text-slate-500 font-medium">Metode Bayar:</span>
-          <span class="font-bold text-slate-700 uppercase">{{ transaction.payment_method || 'CASH' }}</span>
+          <span class="font-bold text-slate-700 uppercase">{{ transaction.payment_method || "CASH" }}</span>
         </div>
 
         <div v-if="transaction.created_at" class="flex justify-between border-b border-slate-200 pb-2">
@@ -202,7 +250,7 @@ function handleClose() {
         >
           <span class="truncate font-medium pr-2">{{ item.name || item.service_name }}</span>
           <span class="font-mono whitespace-nowrap text-slate-600">
-            {{ item.qty }} {{ item.unit || 'x' }} @ {{ new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(item.price) }}
+            {{ item.qty }} {{ item.unit || "x" }} @ {{ new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(item.price) }}
           </span>
         </div>
       </div>
@@ -218,6 +266,37 @@ function handleClose() {
 
       <!-- Action Buttons -->
       <div class="w-full flex flex-col gap-2.5 mt-1">
+        <!-- Tombol Sekunder Cetak Label Keranjang -->
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center gap-1.5">
+            <button
+              @click="handlePrintBasketLabel"
+              :disabled="isGeneratingPDF || isPrintingLabel"
+              class="flex-1 py-3.5 bg-teal-600 text-white font-extrabold rounded-xl shadow-md hover:bg-teal-700 active:scale-95 transition-all text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <span v-if="isPrintingLabel" class="animate-spin text-base">🌀</span>
+              <span v-else>🏷️</span>
+              <span>Cetak Label Keranjang</span>
+            </button>
+
+            <button
+              @click="showPrinterSettings = true"
+              title="Pengaturan Printer"
+              class="py-3.5 px-3 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl border border-slate-200 transition-all font-bold text-sm"
+            >
+              🖨️
+            </button>
+          </div>
+
+          <div v-if="printSuccessMsg" class="text-xs text-emerald-700 font-bold bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+            ✓ {{ printSuccessMsg }}
+          </div>
+          <div v-if="printErrMsg" class="text-xs text-rose-700 font-bold bg-rose-50 p-2 rounded-lg border border-rose-200 flex items-center justify-between gap-1">
+            <span>⚠️ {{ printErrMsg }}</span>
+            <button @click="showPrinterSettings = true" class="underline text-[11px] font-bold">Atur Printer</button>
+          </div>
+        </div>
+
         <!-- WhatsApp Button -->
         <button
           @click="sendWhatsAppReceipt"
@@ -248,5 +327,11 @@ function handleClose() {
         </button>
       </div>
     </div>
+
+    <!-- Modal Pengaturan Printer -->
+    <PrinterSettingsModal
+      :show="showPrinterSettings"
+      @close="showPrinterSettings = false"
+    />
   </div>
 </template>
