@@ -2,13 +2,14 @@
 import { ref } from 'vue'
 import { useCartStore } from '../stores/useCartStore'
 import NumpadInput from '../components/NumpadInput.vue'
+import TransactionSuccessModal from '../components/TransactionSuccessModal.vue'
 
 const cartStore = useCartStore()
 
 const activeTab = ref('coin')
 const showBottomSheet = ref(false)
 const showSuccessModal = ref(false)
-const lastTransaction = ref(null)
+const completedTransaction = ref(null)
 
 function handleAddCoinPackage(pkg) {
   cartStore.addCoinPackage(pkg)
@@ -32,29 +33,27 @@ function openPaymentSheet() {
 }
 
 function closePaymentSheet() {
+  if (cartStore.isLoading) return
   showBottomSheet.value = false
 }
 
-function processTransaction() {
-  if (cartStore.items.length === 0) return
+async function processTransaction() {
+  if (cartStore.items.length === 0 || cartStore.isLoading) return
 
-  lastTransaction.value = {
-    items: [...cartStore.items],
-    total: cartStore.subtotal,
-    paymentMethod: cartStore.paymentMethod,
-    customerName: cartStore.customerName || 'Pelanggan Umum',
-    customerPhone: cartStore.customerPhone || '-',
-    date: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  try {
+    const txData = await cartStore.checkoutTransaction()
+    completedTransaction.value = txData
+    showBottomSheet.value = false
+    showSuccessModal.value = true
+  } catch (err) {
+    console.error('Gagal memproses transaksi:', err)
+    alert(err.message || 'Terjadi kesalahan saat memproses transaksi.')
   }
-
-  showBottomSheet.value = false
-  showSuccessModal.value = true
-  cartStore.clearCart()
 }
 
 function closeSuccessModal() {
   showSuccessModal.value = false
-  lastTransaction.value = null
+  completedTransaction.value = null
 }
 </script>
 
@@ -259,6 +258,7 @@ function closeSuccessModal() {
       </div>
     </div>
 
+    <!-- Bottom Sheet Modal Metode Bayar -->
     <div
       v-if="showBottomSheet"
       class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 flex flex-col justify-end max-w-md mx-auto"
@@ -272,7 +272,8 @@ function closeSuccessModal() {
           </div>
           <button
             @click="closePaymentSheet"
-            class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center hover:bg-slate-200"
+            :disabled="cartStore.isLoading"
+            class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center hover:bg-slate-200 disabled:opacity-50"
           >
             ✕
           </button>
@@ -284,6 +285,7 @@ function closeSuccessModal() {
             <button
               type="button"
               @click="cartStore.setPaymentMethod('cash')"
+              :disabled="cartStore.isLoading"
               :class="[
                 'p-4 rounded-xl border-2 font-bold text-sm flex flex-col items-center gap-2 transition-all',
                 cartStore.paymentMethod === 'cash'
@@ -298,6 +300,7 @@ function closeSuccessModal() {
             <button
               type="button"
               @click="cartStore.setPaymentMethod('qris')"
+              :disabled="cartStore.isLoading"
               :class="[
                 'p-4 rounded-xl border-2 font-bold text-sm flex flex-col items-center gap-2 transition-all',
                 cartStore.paymentMethod === 'qris'
@@ -322,55 +325,29 @@ function closeSuccessModal() {
           </div>
         </div>
 
+        <!-- Tombol Utama Checkout -->
         <button
           @click="processTransaction"
-          class="w-full py-4 bg-emerald-500 text-white font-extrabold rounded-2xl text-lg shadow-lg hover:bg-emerald-600 active:scale-98 transition-all flex items-center justify-center gap-2"
+          :disabled="cartStore.isLoading"
+          class="w-full py-4 bg-emerald-500 text-white font-extrabold rounded-2xl text-lg shadow-lg hover:bg-emerald-600 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-75 disabled:cursor-not-allowed"
         >
-          <span>Konfirmasi & Selesaikan Nota</span>
+          <span v-if="cartStore.isLoading" class="flex items-center gap-2">
+            <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Memproses Nota...</span>
+          </span>
+          <span v-else>Konfirmasi & Selesaikan Nota</span>
         </button>
       </div>
     </div>
 
-    <div
-      v-if="showSuccessModal"
-      class="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 max-w-md mx-auto"
-    >
-      <div class="bg-white rounded-3xl p-6 w-full text-center flex flex-col items-center gap-4 shadow-2xl border border-slate-100">
-        <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-3xl font-black">
-          ✓
-        </div>
-
-        <div>
-          <h2 class="text-xl font-bold text-slate-800">Transaksi Berhasil!</h2>
-          <p class="text-xs text-slate-500 mt-1">Nota telah diproses oleh sistem kasir</p>
-        </div>
-
-        <div v-if="lastTransaction" class="w-full bg-slate-50 p-4 rounded-xl text-left text-xs flex flex-col gap-2 border border-slate-200">
-          <div class="flex justify-between border-b border-slate-200 pb-1">
-            <span class="text-slate-500">Waktu:</span>
-            <span class="font-semibold">{{ lastTransaction.date }}</span>
-          </div>
-          <div class="flex justify-between border-b border-slate-200 pb-1">
-            <span class="text-slate-500">Pelanggan:</span>
-            <span class="font-semibold">{{ lastTransaction.customerName }}</span>
-          </div>
-          <div class="flex justify-between border-b border-slate-200 pb-1">
-            <span class="text-slate-500">Metode Bayar:</span>
-            <span class="font-semibold uppercase">{{ lastTransaction.paymentMethod }}</span>
-          </div>
-          <div class="flex justify-between pt-1">
-            <span class="text-slate-700 font-bold">Total:</span>
-            <span class="font-bold text-emerald-600 font-mono text-sm">{{ formatPrice(lastTransaction.total) }}</span>
-          </div>
-        </div>
-
-        <button
-          @click="closeSuccessModal"
-          class="w-full py-3.5 bg-emerald-500 text-white font-bold rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition-all text-base"
-        >
-          Selesai / Transaksi Baru
-        </button>
-      </div>
-    </div>
+    <!-- Modal Sukses Transaksi -->
+    <TransactionSuccessModal
+      :show="showSuccessModal"
+      :transaction="completedTransaction"
+      @close="closeSuccessModal"
+    />
   </div>
 </template>
