@@ -143,8 +143,8 @@ export const useCartStore = defineStore('cart', () => {
     try {
       const authStore = useAuthStore()
       const receiptNumber = generateReceiptNumber()
-      const fallbackTenantId = authStore.activeTenant?.id || '00000000-0000-0000-0000-000000000001'
-      const fallbackUserId = authStore.currentUser?.id || '00000000-0000-0000-0000-000000000001'
+      const fallbackTenantId = authStore.activeTenant?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
+      const fallbackUserId = authStore.currentUser?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
 
       let tenantId = fallbackTenantId
       let userId = fallbackUserId
@@ -197,12 +197,12 @@ export const useCartStore = defineStore('cart', () => {
           .select()
 
         if (error) {
-          console.warn('Supabase insert transaction error (using fallback local record):', error.message)
+          console.error('Supabase insert transaction error:', error)
         } else if (data && data.length > 0) {
           insertedTxData = data[0]
         }
       } catch (dbErr) {
-        console.warn('Database error when saving transaction:', dbErr)
+        console.error('Database error when saving transaction:', dbErr)
       }
 
       const txId = insertedTxData?.id || `local-tx-${Date.now()}`
@@ -210,9 +210,9 @@ export const useCartStore = defineStore('cart', () => {
       // Save transaction items
       const itemsPayload = currentItems.map(item => ({
         transaction_id: txId,
-        service_name: item.name,
+        item_name: item.name,
+        quantity: item.qty,
         price: item.price,
-        qty: item.qty,
         subtotal: item.price * item.qty,
         tenant_id: tenantId
       }))
@@ -224,11 +224,11 @@ export const useCartStore = defineStore('cart', () => {
             .insert(itemsPayload)
 
           if (itemsErr) {
-            console.warn('Supabase insert transaction_items error:', itemsErr.message)
+            console.error('Supabase insert transaction_items error:', itemsErr)
           }
         }
       } catch (itemsErr) {
-        console.warn('Database error when saving transaction_items:', itemsErr)
+        console.error('Database error when saving transaction_items:', itemsErr)
       }
 
       const resultTransaction = {
