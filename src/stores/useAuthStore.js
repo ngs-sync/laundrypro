@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 export const useAuthStore = defineStore('auth', () => {
   const defaultTenant = {
-    id: '00000000-0000-0000-0000-000000000001',
+    id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
     name: 'Laundry Sparkle Express',
     phone: '081234567890',
     status: 'Active',
@@ -13,7 +13,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const currentUser = ref({
-    id: '00000000-0000-0000-0000-000000000001',
+    id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
     name: 'Staf Kasir',
     email: 'admin@laundrypro.id'
   })
