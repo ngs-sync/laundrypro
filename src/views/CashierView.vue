@@ -1,14 +1,16 @@
 <script setup>
-import { ref } from 'vue'
-import { useCartStore } from '../stores/useCartStore'
-import NumpadInput from '../components/NumpadInput.vue'
-import TransactionSuccessModal from '../components/TransactionSuccessModal.vue'
+import { ref } from "vue"
+import { useCartStore } from "../stores/useCartStore"
+import NumpadInput from "../components/NumpadInput.vue"
+import TransactionSuccessModal from "../components/TransactionSuccessModal.vue"
+import PrinterSettingsModal from "../components/PrinterSettingsModal.vue"
 
 const cartStore = useCartStore()
 
-const activeTab = ref('coin')
+const activeTab = ref("coin")
 const showBottomSheet = ref(false)
 const showSuccessModal = ref(false)
+const showPrinterSettings = ref(false)
 const completedTransaction = ref(null)
 
 function handleAddCoinPackage(pkg) {
@@ -20,9 +22,9 @@ function handleAddKiloan(weight) {
 }
 
 function formatPrice(amount) {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
     minimumFractionDigits: 0
   }).format(amount)
 }
@@ -46,8 +48,8 @@ async function processTransaction() {
     showBottomSheet.value = false
     showSuccessModal.value = true
   } catch (err) {
-    console.error('Gagal memproses transaksi:', err)
-    alert(err.message || 'Terjadi kesalahan saat memproses transaksi.')
+    console.error("Gagal memproses transaksi:", err)
+    alert(err.message || "Terjadi kesalahan saat memproses transaksi.")
   }
 }
 
@@ -71,13 +73,22 @@ function closeSuccessModal() {
           </div>
         </div>
 
-        <button
-          v-if="cartStore.items.length > 0"
-          @click="cartStore.clearCart()"
-          class="text-xs bg-emerald-700 hover:bg-emerald-800 px-3 py-1.5 rounded-lg text-emerald-100 transition-colors flex items-center gap-1"
-        >
-          <span>Reset</span>
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            @click="showPrinterSettings = true"
+            title="Pengaturan Printer Thermal"
+            class="text-xs bg-emerald-700 hover:bg-emerald-800 p-2 rounded-lg text-emerald-100 transition-colors flex items-center gap-1 font-bold"
+          >
+            <span>🖨️</span>
+          </button>
+          <button
+            v-if="cartStore.items.length > 0"
+            @click="cartStore.clearCart()"
+            class="text-xs bg-emerald-700 hover:bg-emerald-800 px-3 py-1.5 rounded-lg text-emerald-100 transition-colors flex items-center gap-1"
+          >
+            <span>Reset</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -348,6 +359,12 @@ function closeSuccessModal() {
       :show="showSuccessModal"
       :transaction="completedTransaction"
       @close="closeSuccessModal"
+    />
+
+    <!-- Modal Pengaturan Printer -->
+    <PrinterSettingsModal
+      :show="showPrinterSettings"
+      @close="showPrinterSettings = false"
     />
   </div>
 </template>
