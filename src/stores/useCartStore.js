@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { supabase } from '../lib/supabase'
+import { useAuthStore } from './useAuthStore'
 
 export const useCartStore = defineStore('cart', () => {
   const items = ref([])
@@ -140,9 +141,10 @@ export const useCartStore = defineStore('cart', () => {
     isLoading.value = true
 
     try {
+      const authStore = useAuthStore()
       const receiptNumber = generateReceiptNumber()
-      const fallbackTenantId = '00000000-0000-0000-0000-000000000001'
-      const fallbackUserId = '00000000-0000-0000-0000-000000000001'
+      const fallbackTenantId = authStore.activeTenant?.id || '00000000-0000-0000-0000-000000000001'
+      const fallbackUserId = authStore.currentUser?.id || '00000000-0000-0000-0000-000000000001'
 
       let tenantId = fallbackTenantId
       let userId = fallbackUserId
