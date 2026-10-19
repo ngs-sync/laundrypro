@@ -1,10 +1,18 @@
 <script setup>
-import { ref } from 'vue'
+import { computed } from 'vue'
+import { useAppStore } from './stores/useAppStore'
+import { supabase } from './lib/supabase'
 
-const isClicked = ref(false)
+// 1. Mengambil store Pinia
+const appStore = useAppStore()
 
-const handleClick = () => {
-  isClicked.value = !isClicked.value
+// 2. Mengecek apakah Supabase client termuat (hanya untuk log visual)
+const isSupabaseLoaded = computed(() => {
+  return supabase.supabaseUrl !== undefined
+})
+
+const handlePiniaClick = () => {
+  appStore.setSystemActive()
 }
 </script>
 
@@ -13,20 +21,35 @@ const handleClick = () => {
     <div class="max-w-md w-full bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
       
       <h1 class="text-3xl font-bold text-slate-800 mb-2">LaundryPro POS</h1>
-      <p class="text-slate-500 mb-8">Setup Vue 3 dan Tailwind berhasil!</p>
+      <p class="text-slate-500 mb-6">Setup Vue 3, Tailwind, dan Pinia berhasil!</p>
       
-      <!-- Tombol Emerald Green -->
+      <!-- Kartu Status -->
+      <div class="bg-slate-50 p-4 rounded-xl mb-6 text-left border border-slate-200">
+        <h2 class="text-sm font-semibold text-slate-600 mb-2 uppercase tracking-wider">Status Sistem:</h2>
+        
+        <div class="flex items-center justify-between py-2 border-b border-slate-200">
+          <span class="text-slate-700">Pinia State:</span>
+          <span class="font-mono text-primary font-bold">{{ appStore.systemStatus }}</span>
+        </div>
+        <div class="flex items-center justify-between py-2 border-b border-slate-200">
+          <span class="text-slate-700">Total Klik (Store):</span>
+          <span class="font-mono font-bold">{{ appStore.clickCount }}</span>
+        </div>
+        <div class="flex items-center justify-between py-2">
+          <span class="text-slate-700">Supabase Client:</span>
+          <span :class="isSupabaseLoaded ? 'text-primary' : 'text-danger'" class="font-medium">
+            {{ isSupabaseLoaded ? 'Termuat ✅' : 'Gagal ❌' }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Tombol Trigger Store -->
       <button 
-        @click="handleClick"
+        @click="handlePiniaClick"
         class="w-full bg-primary hover:bg-emerald-400 text-white font-semibold py-4 px-6 rounded-xl transition-colors active:scale-95 text-lg"
       >
-        {{ isClicked ? 'Sistem Aktif 🚀' : 'Mulai Uji Coba' }}
+        Tes Pinia Store
       </button>
-
-      <!-- Contoh Warna Danger -->
-      <p v-if="isClicked" class="mt-6 text-sm font-medium text-danger">
-        (Ini contoh penggunaan warna peringatan / Danger)
-      </p>
 
     </div>
   </div>
