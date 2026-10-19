@@ -8,6 +8,8 @@ export const useCartStore = defineStore('cart', () => {
   const paymentMethod = ref('cash')
   const customerName = ref('')
   const customerPhone = ref('')
+  const selectedCustomer = ref(null)
+  const isGuest = ref(true)
   const manualInputVal = ref('')
   const isLoading = ref(false)
   const lastTransaction = ref(null)
@@ -129,6 +131,8 @@ export const useCartStore = defineStore('cart', () => {
     items.value = []
     customerName.value = ''
     customerPhone.value = ''
+    selectedCustomer.value = null
+    isGuest.value = true
     manualInputVal.value = ''
     paymentMethod.value = 'cash'
   }
@@ -171,10 +175,85 @@ export const useCartStore = defineStore('cart', () => {
 
       const currentItems = [...items.value]
       const totalAmt = subtotal.value
-      const custName = customerName.value.trim() || 'Pelanggan Umum'
-      const custPhone = customerPhone.value.trim() || ''
       const payMethod = paymentMethod.value
 
+      let customerId = null
+      let custName = 'Pelanggan Umum'
+      let custPhone = ''
+      let pointsEarned = 0
+      let newBalance = 0
+
+      // Handle Customer & Loyalty Logic
+      if (!isGuest.value) {
+        custName = customerName.value.trim() || 'Pelanggan Umum'
+        custPhone = customerPhone.value.trim()
+
+        if (selectedCustomer.value?.id) {
+          // Existing customer chosen from autocomplete
+          customerId = selectedCustomer.value.id
+          custName = selectedCustomer.value.name || custName
+          custPhone = selectedCustomer.value.phone || custPhone
+        } else if (custPhone || custName) {
+          // Check if customer exists by phone number or name
+          let existingCust = null
+          if (custPhone) {
+            const { data: custByPhone } = await supabase
+              .from('customers')
+              .select('*')
+              .eq('phone', custPhone)
+              .maybeSingle()
+            existingCust = custByPhone
+          }
+
+          if (existingCust) {
+            customerId = existingCust.id
+            custName = existingCust.name || custName
+          } else {
+            // Auto-create new customer in customers table
+            const { data: newCust, error: createCustErr } = await supabase
+              .from('customers')
+              .insert([
+                {
+                  tenant_id: tenantId,
+                  name: custName,
+                  phone: custPhone,
+                  points_balance: 0
+                }
+              ])
+              .select()
+              .single()
+
+            if (createCustErr) {
+              console.warn('Gagal membuat pelanggan baru:', createCustErr)
+            } else if (newCust) {
+              customerId = newCust.id
+            }
+          }
+        }
+
+        // Calculate earned points: 1 point per Rp 10.000
+        pointsEarned = Math.floor(totalAmt / 10000)
+
+        // Update customer points_balance if customerId is available
+        if (customerId && pointsEarned > 0) {
+          // Fetch current balance to be accurate
+          const { data: currentCustData } = await supabase
+            .from('customers')
+            .select('points_balance')
+            .eq('id', customerId)
+            .single()
+
+          const currentBalance = currentCustData?.points_balance || selectedCustomer.value?.points_balance || 0
+          newBalance = currentBalance + pointsEarned
+
+          await supabase
+            .from('customers')
+            .update({ points_balance: newBalance })
+            .eq('id', customerId)
+        }
+      }
+
+      // Payload for transactions
       const transactionPayload = {
         receipt_number: receiptNumber,
         total_amount: totalAmt,
@@ -182,6 +261,9 @@ export const useCartStore = defineStore('cart', () => {
         service_type: serviceType,
         customer_name: custName,
         customer_phone: custPhone,
+        customer_id: customerId,
+        points_earned: pointsEarned,
+        points_redeemed: 0,
         tenant_id: tenantId,
         user_id: userId,
         payment_status: 'paid',
@@ -205,6 +287,26 @@ export const useCartStore = defineStore('cart', () => {
 
       const insertedTxData = data[0]
       const txId = insertedTxData.id
+
+      // Record mutation log in loyalty_logs
+      if (customerId && pointsEarned > 0) {
+        const { error: loyaltyErr } = await supabase
+          .from('loyalty_logs')
+          .insert([
+            {
+              tenant_id: tenantId,
+              customer_id: customerId,
+              transaction_id: txId,
+              points_change: pointsEarned,
+              activity_type: 'EARN',
+              description: `Perolehan poin transaksi nota ${receiptNumber}`
+            }
+          ])
+
+        if (loyaltyErr) {
+          console.warn('Gagal mencatat mutasi loyalty_logs:', loyaltyErr)
+        }
+      }
 
       // Save transaction items
       const itemsPayload = currentItems.map(item => ({
@@ -233,6 +335,9 @@ export const useCartStore = defineStore('cart', () => {
         service_type: serviceType,
         customer_name: custName,
         customer_phone: custPhone,
+        customer_id: customerId,
+        points_earned: pointsEarned,
+        points_balance_after: newBalance,
         payment_status: 'paid',
         production_status: 'processing',
         status: 'lunas',
@@ -253,6 +358,8 @@ export const useCartStore = defineStore('cart', () => {
     paymentMethod,
     customerName,
     customerPhone,
+    selectedCustomer,
+    isGuest,
     manualInputVal,
     coinPackages,
     isLoading,
