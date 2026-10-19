@@ -143,6 +143,10 @@ function sendWhatsAppReceipt() {
   const paymentStatus = (props.transaction.status || props.transaction.payment_status || "LUNAS").toUpperCase()
   const pdfUrl = receiptPdfUrl.value || props.transaction.receipt_pdf_url || "-"
 
+  const pointsText = props.transaction.points_earned
+    ? `\n- Poin Diberikan: +${props.transaction.points_earned} Poin`
+    : ''
+
   const rawPhone = props.transaction.customer_phone || ""
   const formattedPhone = formatInternationalPhone(rawPhone)
 
@@ -150,7 +154,7 @@ function sendWhatsAppReceipt() {
 Berikut ringkasan pesanan Anda:
 - No. Nota: ${receiptNum}
 - Layanan: ${serviceType}
-- Total: ${totalAmount} (${paymentStatus})
+- Total: ${totalAmount} (${paymentStatus})${pointsText}
 
 Lihat/unduh struk digital Anda di sini:
 ${pdfUrl}`
@@ -222,6 +226,11 @@ function handleClose() {
         <div v-if="transaction.customer_phone" class="flex justify-between border-b border-[#E2E8F0] pb-2">
           <span class="text-[#64748B] font-medium">No. WA / Telepon:</span>
           <span class="font-mono text-[#0F172A]">{{ transaction.customer_phone }}</span>
+        </div>
+
+        <div v-if="transaction.points_earned !== undefined && transaction.points_earned > 0" class="flex justify-between border-b border-[#E2E8F0] pb-2 bg-[#ECFDF5] -mx-4 px-4 py-1.5 border-y border-[#10B981]/20">
+          <span class="text-[#00422B] font-bold">Perolehan Poin:</span>
+          <span class="font-extrabold text-[#10B981] font-mono">+{{ transaction.points_earned }} Poin</span>
         </div>
 
         <div class="flex justify-between border-b border-[#E2E8F0] pb-2">

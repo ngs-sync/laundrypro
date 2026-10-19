@@ -2,6 +2,7 @@
 import { ref } from "vue"
 import { useCartStore } from "../stores/useCartStore"
 import NumpadInput from "../components/NumpadInput.vue"
+import CustomerSearch from "../components/CustomerSearch.vue"
 import TransactionSuccessModal from "../components/TransactionSuccessModal.vue"
 import PrinterSettingsModal from "../components/PrinterSettingsModal.vue"
 
@@ -234,24 +235,15 @@ function closeSuccessModal() {
             </div>
           </div>
 
-          <!-- Customer Details Box -->
-          <div class="bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-xs flex flex-col gap-3 mt-1">
-            <h3 class="text-xs font-bold uppercase text-[#64748B] tracking-wider">Data Pelanggan (Opsional)</h3>
-            <div class="grid grid-cols-1 gap-2.5">
-              <input
-                v-model="cartStore.customerName"
-                type="text"
-                placeholder="Nama Pelanggan"
-                class="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded text-sm font-medium focus:outline-none focus:border-[#10B981]"
-              />
-              <input
-                v-model="cartStore.customerPhone"
-                type="tel"
-                placeholder="Nomor WA / Telepon (Contoh: 081234567890)"
-                class="w-full px-3.5 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded text-sm font-mono focus:outline-none focus:border-[#10B981]"
-              />
-            </div>
-          </div>
+          <!-- Customer & Loyalty Component -->
+          <CustomerSearch
+            v-model:isGuest="cartStore.isGuest"
+            v-model:selectedCustomer="cartStore.selectedCustomer"
+            v-model:customerName="cartStore.customerName"
+            v-model:customerPhone="cartStore.customerPhone"
+            :cartTotal="cartStore.subtotal"
+            class="mt-1"
+          />
         </div>
       </section>
     </main>
@@ -336,7 +328,13 @@ function closeSuccessModal() {
         <div class="bg-[#F8FAFC] p-4 rounded-lg border border-[#E2E8F0] flex flex-col gap-2">
           <div class="flex items-center justify-between text-xs text-[#64748B]">
             <span>Pelanggan</span>
-            <span class="font-bold text-[#0F172A]">{{ cartStore.customerName || 'Pelanggan Umum' }}</span>
+            <span class="font-bold text-[#0F172A]">
+              {{ cartStore.isGuest ? 'Pelanggan Umum (Guest)' : (cartStore.customerName || 'Member Baru') }}
+            </span>
+          </div>
+          <div v-if="!cartStore.isGuest" class="flex items-center justify-between text-xs text-[#64748B]">
+            <span>Perolehan Poin</span>
+            <span class="font-bold text-[#10B981] font-mono">+{{ Math.floor(cartStore.subtotal / 10000) }} Poin</span>
           </div>
           <div class="flex items-center justify-between text-xs text-[#64748B]">
             <span>Total Tagihan</span>
