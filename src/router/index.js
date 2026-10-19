@@ -13,6 +13,11 @@ const routes = [
     component: () => import('../views/ShiftView.vue')
   },
   {
+    path: '/owner',
+    name: 'owner',
+    component: () => import('../views/OwnerDashboardView.vue')
+  },
+  {
     path: '/superadmin',
     name: 'superadmin',
     component: () => import('../views/SuperadminView.vue')

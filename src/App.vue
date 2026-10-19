@@ -46,7 +46,7 @@ function handleStopImpersonation() {
         <router-link
           to="/"
           :class="[
-            'px-3 py-1.5 rounded-lg transition-all',
+            'px-2.5 py-1.5 rounded-lg transition-all',
             route.path === '/'
               ? 'bg-[#10B981] text-white shadow-xs'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
@@ -58,7 +58,7 @@ function handleStopImpersonation() {
         <router-link
           to="/shift"
           :class="[
-            'px-3 py-1.5 rounded-lg transition-all',
+            'px-2.5 py-1.5 rounded-lg transition-all',
             route.path === '/shift'
               ? 'bg-[#10B981] text-white shadow-xs'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
@@ -68,10 +68,22 @@ function handleStopImpersonation() {
         </router-link>
 
         <router-link
+          to="/owner"
+          :class="[
+            'px-2.5 py-1.5 rounded-lg transition-all',
+            route.path === '/owner'
+              ? 'bg-[#10B981] text-white shadow-xs'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+          ]"
+        >
+          <span>👑 Pemilik</span>
+        </router-link>
+
+        <router-link
           v-if="authStore.isSuperadmin"
           to="/superadmin"
           :class="[
-            'px-3 py-1.5 rounded-lg transition-all',
+            'px-2.5 py-1.5 rounded-lg transition-all',
             route.path === '/superadmin'
               ? 'bg-[#10B981] text-white shadow-xs'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
