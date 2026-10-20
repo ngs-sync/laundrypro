@@ -1,7 +1,187 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { supabase } from '../lib/supabase'
 
 export const useAuthStore = defineStore('auth', () => {
+  // --- STATE ---
+  const user = ref(null)
+  const tenantCode = ref(localStorage.getItem('tenantCode') || '')
+  const isAuthenticated = ref(false)
+  const isLoading = ref(false)
+
+  // --- ACTIONS ---
+
+  /**
+   * Action loginStaff: Login untuk staf kasir menggunakan kode toko & username.
+   */
+  async function loginStaff(tenantCodeInput, username, password, rememberTenantCode = false) {
+    isLoading.value = true
+    try {
+      const cleanTenantCode = tenantCodeInput.trim().toLowerCase()
+      const cleanUsername = username.trim().toLowerCase()
+
+      // Rumus virtual email
+      const email = `${cleanUsername}.${cleanTenantCode}@laundrypro.app`
+
+      // Authenticate dengan Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+
+      if (authError) throw authError
+
+      if (!authData?.user) {
+        throw new Error('Gagal melakukan autentikasi user.')
+      }
+
+      // Ambil data detail pengguna dari tabel 'users' filter by auth_user_id
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('auth_user_id', authData.user.id)
+        .single()
+
+      if (profileError || !userProfile) {
+        throw new Error('Data profil pengguna tidak ditemukan.')
+      }
+
+      // Validasi status is_active
+      if (userProfile.is_active === false) {
+        throw new Error('Akun Anda tidak aktif. Silakan hubungi administrator.')
+      }
+
+      // Set State
+      user.value = {
+        id: userProfile.id,
+        full_name: userProfile.full_name,
+        role: userProfile.role,
+        tenant_id: userProfile.tenant_id
+      }
+      tenantCode.value = tenantCodeInput.trim()
+      isAuthenticated.value = true
+
+      // Simpan / hapus tenantCode ke localStorage sesuai opsi rememberTenantCode
+      if (rememberTenantCode) {
+        localStorage.setItem('tenantCode', tenantCode.value)
+      } else {
+        localStorage.removeItem('tenantCode')
+      }
+
+      return authData
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  /**
+   * Action loginOwnerOrSuperadmin: Login untuk Owner atau Superadmin menggunakan email & password.
+   */
+  async function loginOwnerOrSuperadmin(email, password) {
+    isLoading.value = true
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      })
+
+      if (authError) throw authError
+
+      if (!authData?.user) {
+        throw new Error('Gagal melakukan autentikasi user.')
+      }
+
+      // Ambil data profil dari tabel 'users'
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('auth_user_id', authData.user.id)
+        .maybeSingle()
+
+      if (profileError) {
+        console.warn('Gagal mengambil data profil dari tabel users:', profileError)
+      }
+
+      // Set State
+      user.value = {
+        id: userProfile?.id || authData.user.id,
+        full_name: userProfile?.full_name || authData.user.email,
+        role: userProfile?.role || 'owner',
+        tenant_id: userProfile?.tenant_id || null
+      }
+      isAuthenticated.value = true
+
+      return authData
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  /**
+   * Action logout: Keluar dari aplikasi & reset state user ke nilai awal.
+   */
+  async function logout() {
+    isLoading.value = true
+    try {
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.error('Error saat logout:', err)
+    } finally {
+      user.value = null
+      isAuthenticated.value = false
+      isLoading.value = false
+    }
+  }
+
+  /**
+   * Action initSession: Memeriksa sesi aktif dari Supabase Auth saat aplikasi pertama dimuat.
+   */
+  async function initSession() {
+    isLoading.value = true
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession()
+
+      if (error) throw error
+
+      if (session?.user) {
+        const authUser = session.user
+
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('auth_user_id', authUser.id)
+          .maybeSingle()
+
+        if (userProfile) {
+          user.value = {
+            id: userProfile.id,
+            full_name: userProfile.full_name,
+            role: userProfile.role,
+            tenant_id: userProfile.tenant_id
+          }
+        } else {
+          user.value = {
+            id: authUser.id,
+            full_name: authUser.user_metadata?.full_name || authUser.email,
+            role: authUser.user_metadata?.role || 'staff',
+            tenant_id: authUser.user_metadata?.tenant_id || null
+          }
+        }
+        isAuthenticated.value = true
+      } else {
+        user.value = null
+        isAuthenticated.value = false
+      }
+    } catch (err) {
+      console.warn('Gagal inisialisasi sesi:', err)
+      user.value = null
+      isAuthenticated.value = false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // --- LEGACY & HELPER STATE / ACTIONS UNTUK DUKUNGAN KOMPONEN EKSISTING ---
   const defaultTenant = {
     id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
     name: 'Laundry Sparkle Express',
@@ -12,15 +192,25 @@ export const useAuthStore = defineStore('auth', () => {
     quotaLimit: 500
   }
 
-  const currentUser = ref({
-    id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
-    name: 'Staf Kasir',
-    email: 'admin@laundrypro.id'
+  const currentUser = computed(() => {
+    if (user.value) {
+      return {
+        id: user.value.id,
+        name: user.value.full_name || 'Pengguna',
+        full_name: user.value.full_name,
+        role: user.value.role,
+        tenant_id: user.value.tenant_id
+      }
+    }
+    return {
+      id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
+      name: 'Staf Kasir',
+      email: 'admin@laundrypro.id'
+    }
   })
 
   const isSuperadmin = ref(true)
 
-  // Load initial impersonation state from localStorage if available
   const savedImpersonation = localStorage.getItem('laundrypro_impersonation')
   let initialTenant = defaultTenant
   let initialImpersonating = false
@@ -40,7 +230,6 @@ export const useAuthStore = defineStore('auth', () => {
   const activeTenant = ref(initialTenant)
   const isImpersonating = ref(initialImpersonating)
 
-  // Active shift state
   const savedShift = localStorage.getItem('laundrypro_active_shift')
   let parsedShift = null
   if (savedShift) {
@@ -97,6 +286,17 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
+    // Primary auth state & actions
+    user,
+    tenantCode,
+    isAuthenticated,
+    isLoading,
+    loginStaff,
+    loginOwnerOrSuperadmin,
+    logout,
+    initSession,
+
+    // Helpers / Compatibility state & actions
     currentUser,
     isSuperadmin,
     defaultTenant,
