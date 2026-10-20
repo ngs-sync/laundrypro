@@ -8,6 +8,11 @@ const routes = [
     component: CashierView
   },
   {
+    path: '/login',
+    name: 'login',
+    component: () => import('../views/LoginView.vue')
+  },
+  {
     path: '/shift',
     name: 'shift',
     component: () => import('../views/ShiftView.vue')
