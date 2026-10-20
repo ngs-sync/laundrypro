@@ -1,10 +1,15 @@
 <script setup>
+import { onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from './stores/useAuthStore'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+
+onMounted(async () => {
+  await authStore.initSession()
+})
 
 function handleStopImpersonation() {
   authStore.stopImpersonation(router)
