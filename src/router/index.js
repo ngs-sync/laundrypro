@@ -13,6 +13,16 @@ const routes = [
     component: () => import('../views/LoginView.vue')
   },
   {
+    path: '/owner/login',
+    name: 'owner-login',
+    component: () => import('../views/OwnerLoginView.vue')
+  },
+  {
+    path: '/superadmin/login',
+    name: 'superadmin-login',
+    component: () => import('../views/SuperadminLoginView.vue')
+  },
+  {
     path: '/shift',
     name: 'shift',
     component: () => import('../views/ShiftView.vue')
