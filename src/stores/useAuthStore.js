@@ -8,6 +8,29 @@ export const useAuthStore = defineStore('auth', () => {
   const tenantCode = ref(localStorage.getItem('tenantCode') || '')
   const isAuthenticated = ref(false)
   const isLoading = ref(false)
+  const activeTenant = ref(null)
+
+  /**
+   * Action fetchTenantProfile: Fetch profil tenant murni dari Supabase berdasarkan tenantId.
+   */
+  async function fetchTenantProfile(tenantId) {
+    if (!tenantId) return null
+    try {
+      const { data, error } = await supabase
+        .from('tenants')
+        .select('*')
+        .eq('id', tenantId)
+        .maybeSingle()
+
+      if (!error && data) {
+        activeTenant.value = data
+        return data
+      }
+    } catch (err) {
+      console.warn('Gagal mengambil profil tenant dari Supabase:', err)
+    }
+    return null
+  }
 
   // --- ACTIONS ---
 
@@ -60,6 +83,10 @@ export const useAuthStore = defineStore('auth', () => {
       }
       tenantCode.value = tenantCodeInput.trim()
       isAuthenticated.value = true
+
+      if (userProfile.tenant_id) {
+        await fetchTenantProfile(userProfile.tenant_id)
+      }
 
       // Simpan / hapus tenantCode ke localStorage sesuai opsi rememberTenantCode
       if (rememberTenantCode) {
@@ -117,14 +144,20 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
 
+      const resolvedTenantId = userProfile?.tenant_id || authData.user.user_metadata?.tenant_id || null
+
       // Set State
       user.value = {
         id: userProfile?.id || authData.user.id,
         full_name: userProfile?.full_name || authData.user.user_metadata?.full_name || authData.user.email,
         role: resolvedRole,
-        tenant_id: userProfile?.tenant_id || authData.user.user_metadata?.tenant_id || null
+        tenant_id: resolvedTenantId
       }
       isAuthenticated.value = true
+
+      if (resolvedTenantId) {
+        await fetchTenantProfile(resolvedTenantId)
+      }
 
       return authData
     } finally {
@@ -143,6 +176,7 @@ export const useAuthStore = defineStore('auth', () => {
       console.error('Error saat logout:', err)
     } finally {
       user.value = null
+      activeTenant.value = null
       isAuthenticated.value = false
       isLoading.value = false
     }
@@ -179,37 +213,35 @@ export const useAuthStore = defineStore('auth', () => {
           }
         }
 
+        const resolvedTenantId = userProfile?.tenant_id || authUser.user_metadata?.tenant_id || null
+
         user.value = {
           id: userProfile?.id || authUser.id,
           full_name: userProfile?.full_name || authUser.user_metadata?.full_name || authUser.email,
           role: resolvedRole,
-          tenant_id: userProfile?.tenant_id || authUser.user_metadata?.tenant_id || null
+          tenant_id: resolvedTenantId
         }
         isAuthenticated.value = true
+
+        if (resolvedTenantId) {
+          await fetchTenantProfile(resolvedTenantId)
+        }
       } else {
         user.value = null
+        activeTenant.value = null
         isAuthenticated.value = false
       }
     } catch (err) {
       console.warn('Gagal inisialisasi sesi:', err)
       user.value = null
+      activeTenant.value = null
       isAuthenticated.value = false
     } finally {
       isLoading.value = false
     }
   }
 
-  // --- LEGACY & HELPER STATE / ACTIONS UNTUK DUKUNGAN KOMPONEN EKSISTING ---
-  const defaultTenant = {
-    id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
-    name: 'Laundry Sparkle Express',
-    phone: '081234567890',
-    status: 'Active',
-    trialDays: 30,
-    quotaUsed: 124,
-    quotaLimit: 500
-  }
-
+  // --- HELPER STATE / ACTIONS ---
   const currentUser = computed(() => {
     if (user.value) {
       return {
@@ -220,24 +252,19 @@ export const useAuthStore = defineStore('auth', () => {
         tenant_id: user.value.tenant_id
       }
     }
-    return {
-      id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
-      name: 'Staf Kasir',
-      email: 'admin@laundrypro.id'
-    }
+    return null
   })
 
-  const isSuperadmin = ref(true)
+  const isSuperadmin = ref(false)
 
   const savedImpersonation = localStorage.getItem('laundrypro_impersonation')
-  let initialTenant = defaultTenant
   let initialImpersonating = false
 
   if (savedImpersonation) {
     try {
       const parsed = JSON.parse(savedImpersonation)
       if (parsed?.activeTenant) {
-        initialTenant = parsed.activeTenant
+        activeTenant.value = parsed.activeTenant
         initialImpersonating = true
       }
     } catch (e) {
@@ -245,7 +272,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const activeTenant = ref(initialTenant)
   const isImpersonating = ref(initialImpersonating)
 
   const savedShift = localStorage.getItem('laundrypro_active_shift')
@@ -272,7 +298,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function stopImpersonation(router = null) {
-    activeTenant.value = { ...defaultTenant }
+    activeTenant.value = null
     isImpersonating.value = false
     localStorage.removeItem('laundrypro_impersonation')
     if (router) {
@@ -290,8 +316,8 @@ export const useAuthStore = defineStore('auth', () => {
       openedAt: new Date().toISOString(),
       initialCash: Number(initialCash) || 0,
       initialCoins: Number(initialCoins) || 0,
-      tenantId: activeTenant.value.id,
-      userId: currentUser.value.id
+      tenantId: activeTenant.value?.id || user.value?.tenant_id,
+      userId: currentUser.value?.id || user.value?.id
     }
     activeShift.value = shiftData
     localStorage.setItem('laundrypro_active_shift', JSON.stringify(shiftData))
@@ -313,11 +339,11 @@ export const useAuthStore = defineStore('auth', () => {
     loginOwnerOrSuperadmin,
     logout,
     initSession,
+    fetchTenantProfile,
 
     // Helpers / Compatibility state & actions
     currentUser,
     isSuperadmin,
-    defaultTenant,
     activeTenant,
     isImpersonating,
     activeShift,

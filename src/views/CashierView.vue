@@ -1,12 +1,15 @@
 <script setup>
-import { ref } from "vue"
+import { ref, computed, onMounted, watch } from "vue"
 import { useCartStore } from "../stores/useCartStore"
+import { useAuthStore } from "../stores/useAuthStore"
+import { supabase } from "../lib/supabase"
 import NumpadInput from "../components/NumpadInput.vue"
 import CustomerSearch from "../components/CustomerSearch.vue"
 import TransactionSuccessModal from "../components/TransactionSuccessModal.vue"
 import PrinterSettingsModal from "../components/PrinterSettingsModal.vue"
 
 const cartStore = useCartStore()
+const authStore = useAuthStore()
 
 const activeTab = ref("coin")
 const showBottomSheet = ref(false)
@@ -14,12 +17,76 @@ const showSuccessModal = ref(false)
 const showPrinterSettings = ref(false)
 const completedTransaction = ref(null)
 
-function handleAddCoinPackage(pkg) {
-  cartStore.addCoinPackage(pkg)
+const services = ref([])
+const isLoadingServices = ref(false)
+const selectedKiloanServiceId = ref(null)
+
+const storeName = computed(() => {
+  return authStore.activeTenant?.name || 'LaundryPro POS'
+})
+
+const staffName = computed(() => {
+  return authStore.user?.full_name || authStore.currentUser?.name || 'Staf Kasir'
+})
+
+async function fetchServices() {
+  const tenantId = authStore.user?.tenant_id || authStore.activeTenant?.id
+  if (!tenantId) {
+    services.value = []
+    return
+  }
+
+  isLoadingServices.value = true
+  try {
+    const { data, error } = await supabase
+      .from("services")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+
+    if (error) {
+      console.error("Error fetching services from Supabase:", error)
+      services.value = []
+    } else {
+      services.value = data || []
+    }
+  } catch (err) {
+    console.error("Exception fetching services:", err)
+    services.value = []
+  } finally {
+    isLoadingServices.value = false
+  }
+}
+
+const coinServices = computed(() => {
+  return services.value.filter(s => s.category === 'koin' || s.unit === 'paket')
+})
+
+const kiloanServices = computed(() => {
+  return services.value.filter(s => s.category === 'kiloan' || s.unit === 'kg')
+})
+
+const otherServices = computed(() => {
+  return services.value.filter(s => s.category !== 'koin' && s.unit !== 'paket' && s.category !== 'kiloan' && s.unit !== 'kg')
+})
+
+const activeKiloanService = computed(() => {
+  if (selectedKiloanServiceId.value) {
+    const found = kiloanServices.value.find(s => s.id === selectedKiloanServiceId.value)
+    if (found) return found
+  }
+  return kiloanServices.value[0] || null
+})
+
+function handleAddService(srv) {
+  cartStore.addServiceToCart(srv, 1)
 }
 
 function handleAddKiloan(weight) {
-  cartStore.addKiloanService(weight)
+  if (activeKiloanService.value) {
+    cartStore.addKiloanService(weight, activeKiloanService.value)
+  }
 }
 
 function formatPrice(amount) {
@@ -58,6 +125,18 @@ function closeSuccessModal() {
   showSuccessModal.value = false
   completedTransaction.value = null
 }
+
+onMounted(() => {
+  fetchServices()
+})
+
+watch(() => authStore.activeTenant?.id, () => {
+  fetchServices()
+})
+
+watch(() => authStore.user?.tenant_id, () => {
+  fetchServices()
+})
 </script>
 
 <template>
@@ -70,8 +149,8 @@ function closeSuccessModal() {
             🧺
           </div>
           <div>
-            <h1 class="text-lg font-extrabold leading-none tracking-tight">LaundryPro POS</h1>
-            <span class="text-xs text-emerald-100 font-medium">Kasir Self-Service & Kiloan</span>
+            <h1 class="text-base font-extrabold leading-tight tracking-tight">{{ storeName }}</h1>
+            <span class="text-xs text-emerald-100 font-medium block">Staf: {{ staffName }}</span>
           </div>
         </div>
 
@@ -124,53 +203,130 @@ function closeSuccessModal() {
 
     <!-- Main Content Flow -->
     <main class="p-4 flex-1 flex flex-col gap-5">
+      <!-- Loading Indicator -->
+      <div v-if="isLoadingServices" class="bg-white p-8 rounded-xl border border-[#E2E8F0] text-center flex flex-col items-center justify-center gap-2 text-[#64748B]">
+        <svg class="animate-spin h-6 w-6 text-[#10B981]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span class="text-xs font-medium">Memuat tarif layanan Supabase...</span>
+      </div>
+
+      <!-- Empty State for Empty Database Services -->
+      <div
+        v-else-if="services.length === 0 && activeTab !== 'cart'"
+        class="bg-white p-8 rounded-xl border border-dashed border-[#CBD5E1] text-center flex flex-col items-center justify-center gap-3 text-[#64748B] my-4 shadow-xs"
+      >
+        <span class="text-4xl">🧺</span>
+        <h3 class="text-base font-bold text-[#0F172A]">Layanan belum diatur</h3>
+        <p class="text-xs text-[#64748B]">Silakan tambahkan tarif di Dasbor Pemilik.</p>
+        <button
+          @click="fetchServices"
+          class="mt-2 px-4 py-2 bg-[#F8FAFC] hover:bg-slate-100 text-[#0F172A] font-bold text-xs rounded-lg border border-[#CBD5E1] active:translate-y-[1px]"
+        >
+          🔄 Muat Ulang Layanan
+        </button>
+      </div>
+
       <!-- Section Paket Koin -->
-      <section v-if="activeTab === 'coin'" class="flex flex-col gap-4">
+      <section v-else-if="activeTab === 'coin'" class="flex flex-col gap-4">
         <div class="flex items-center justify-between">
           <h2 class="text-base font-bold text-[#0F172A]">Paket Koin Self-Service</h2>
           <span class="text-xs text-[#64748B]">Pilih paket mesin</span>
         </div>
 
-        <div class="flex flex-col gap-3">
+        <div v-if="coinServices.length === 0" class="bg-white p-6 rounded-lg border border-dashed border-[#CBD5E1] text-center text-xs text-[#64748B]">
+          Tidak ada paket koin yang aktif.
+        </div>
+
+        <div v-else class="flex flex-col gap-3">
           <div
-            v-for="pkg in cartStore.coinPackages"
-            :key="pkg.id"
+            v-for="srv in coinServices"
+            :key="srv.id"
             class="bg-white p-5 rounded-lg border border-[#E2E8F0] hover:border-[#10B981] shadow-xs transition-all flex flex-col gap-3 relative overflow-hidden"
           >
             <div class="flex items-center justify-between">
               <span class="text-xs font-bold uppercase tracking-wider text-[#00422B] bg-[#ECFDF5] px-2.5 py-1 rounded border border-[#10B981]/30">
-                {{ pkg.badge }}
+                {{ srv.category || 'Koin' }}
               </span>
               <span class="text-xl font-bold text-[#10B981] font-mono tabular-nums">
-                {{ formatPrice(pkg.price) }}
+                {{ formatPrice(srv.price) }}
               </span>
             </div>
 
             <div>
-              <h3 class="text-lg font-bold text-[#0F172A]">{{ pkg.name }}</h3>
-              <p class="text-xs text-[#64748B] mt-0.5">{{ pkg.description }}</p>
+              <h3 class="text-lg font-bold text-[#0F172A]">{{ srv.name }}</h3>
+              <p class="text-xs text-[#64748B] mt-0.5">{{ formatPrice(srv.price) }} / {{ srv.unit || 'paket' }}</p>
             </div>
 
             <button
-              @click="handleAddCoinPackage(pkg)"
+              @click="handleAddService(srv)"
               class="w-full h-14 bg-[#10B981] hover:bg-[#059669] text-white font-bold rounded-lg border-b-2 border-[#059669] active:translate-y-[2px] transition-all flex items-center justify-center gap-2 text-base shadow-xs min-h-[52px]"
             >
               <span>+ Tambah Paket</span>
             </button>
           </div>
         </div>
+
+        <!-- Display other services if available -->
+        <div v-if="otherServices.length > 0" class="flex flex-col gap-3 pt-4 border-t border-[#E2E8F0]">
+          <h3 class="text-sm font-bold text-[#0F172A]">Layanan Satuan & Lainnya</h3>
+          <div
+            v-for="srv in otherServices"
+            :key="srv.id"
+            class="bg-white p-4 rounded-lg border border-[#E2E8F0] hover:border-[#10B981] shadow-xs flex items-center justify-between gap-3"
+          >
+            <div>
+              <h4 class="font-bold text-sm text-[#0F172A]">{{ srv.name }}</h4>
+              <p class="text-xs text-[#64748B] font-mono tabular-nums">{{ formatPrice(srv.price) }} / {{ srv.unit || 'pcs' }}</p>
+            </div>
+            <button
+              @click="handleAddService(srv)"
+              class="px-4 py-2.5 bg-[#10B981] text-white font-bold rounded-lg hover:bg-[#059669] active:translate-y-[1px] text-xs"
+            >
+              + Tambah
+            </button>
+          </div>
+        </div>
       </section>
 
       <!-- Section Cuci Kiloan Numpad -->
-      <section v-if="activeTab === 'kiloan'" class="flex flex-col gap-4">
+      <section v-else-if="activeTab === 'kiloan'" class="flex flex-col gap-4">
         <div class="flex items-center justify-between">
           <h2 class="text-base font-bold text-[#0F172A]">Cuci Kiloan Manual</h2>
           <span class="text-xs text-[#64748B]">Numeric keypad input</span>
         </div>
 
+        <!-- Kiloan Service Selector if multiple -->
+        <div v-if="kiloanServices.length > 1" class="flex flex-col gap-1.5">
+          <label class="text-xs font-bold text-[#64748B] uppercase tracking-wider">Pilih Tarif Kiloan:</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              v-for="srv in kiloanServices"
+              :key="srv.id"
+              type="button"
+              @click="selectedKiloanServiceId = srv.id"
+              :class="[
+                'p-2.5 rounded-lg border text-xs font-bold text-left transition-all',
+                activeKiloanService?.id === srv.id
+                  ? 'border-[#10B981] bg-[#ECFDF5] text-[#00422B]'
+                  : 'border-[#E2E8F0] bg-white text-[#0F172A]'
+              ]"
+            >
+              <span class="block truncate">{{ srv.name }}</span>
+              <span class="font-mono text-[11px] text-[#10B981]">{{ formatPrice(srv.price) }} / kg</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="!activeKiloanService" class="bg-white p-6 rounded-lg border border-dashed border-[#CBD5E1] text-center text-xs text-[#64748B]">
+          Layanan kiloan belum diatur. Silakan tambahkan tarif di Dasbor Pemilik.
+        </div>
+
         <NumpadInput
+          v-else
           v-model="cartStore.manualInputVal"
-          :price-per-kg="7000"
+          :price-per-kg="Number(activeKiloanService.price)"
           @add-kiloan="handleAddKiloan"
         />
       </section>
