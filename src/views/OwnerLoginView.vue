@@ -6,7 +6,7 @@ import { useAuthStore } from '../stores/useAuthStore'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const email = ref('')
+const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
 const isLoading = ref(false)
@@ -14,21 +14,21 @@ const isLoading = ref(false)
 const handleLogin = async () => {
   errorMessage.value = ''
 
-  if (!email.value.trim() || !password.value) {
-    errorMessage.value = 'Silakan isi alamat email dan kata sandi Anda.'
+  if (!username.value.trim() || !password.value) {
+    errorMessage.value = 'Silakan isi username dan kata sandi Anda.'
     return
   }
 
   isLoading.value = true
   try {
-    await authStore.loginOwnerOrSuperadmin(email.value, password.value, 'owner')
+    await authStore.loginOwner({ username: username.value, password: password.value })
     router.push('/owner')
   } catch (err) {
     console.error('Owner login error:', err)
     if (err.message) {
       errorMessage.value = err.message
     } else {
-      errorMessage.value = 'Gagal masuk. Periksa kembali email dan kata sandi Anda.'
+      errorMessage.value = 'Username atau password tidak sesuai'
     }
   } finally {
     isLoading.value = false
@@ -64,16 +64,16 @@ const handleLogin = async () => {
 
       <!-- Form Login -->
       <form @submit.prevent="handleLogin" class="space-y-4">
-        <!-- Email -->
+        <!-- Username -->
         <div>
-          <label for="email" class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-            Alamat Email
+          <label for="username" class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+            Username
           </label>
           <input
-            id="email"
-            type="email"
-            v-model="email"
-            placeholder="owner@laundrypro.app"
+            id="username"
+            type="text"
+            v-model="username"
+            placeholder="Masukkan username pemilik"
             class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-medium placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
             required
           />
