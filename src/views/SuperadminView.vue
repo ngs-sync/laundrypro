@@ -695,8 +695,8 @@ Terima kasih telah mempercayakan operasional toko Anda pada *LaundryPro*! 🚀`
               </tr>
 
               <tr v-if="filteredTenants.length === 0">
-                <td colspan="5" class="p-8 text-center text-slate-500 text-xs">
-                  Tidak ada tenant toko yang sesuai dengan pencarian.
+                <td colspan="5" class="p-8 text-center text-slate-500 text-xs font-medium">
+                  Belum ada data toko / tenant.
                 </td>
               </tr>
             </tbody>
@@ -717,6 +717,9 @@ Terima kasih telah mempercayakan operasional toko Anda pada *LaundryPro*! 🚀`
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
+          <div v-if="superadminStore.plans.length === 0" class="col-span-full p-8 text-center text-slate-500 text-xs font-medium">
+            Belum ada data paket langganan.
+          </div>
           <div
             v-for="plan in superadminStore.plans"
             :key="plan.id"

@@ -34,7 +34,7 @@ export const useOwnerStore = defineStore('owner', () => {
 
   // Helper: get current active tenant_id
   function getTenantId() {
-    return activeBranchId.value || authStore.activeTenant?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
+    return activeBranchId.value || authStore.activeTenant?.id || null
   }
 
   // Active Branch Plan & Outlets Limit
@@ -92,35 +92,26 @@ export const useOwnerStore = defineStore('owner', () => {
         if (authStore.activeTenant) {
           branches.value = [authStore.activeTenant]
         } else {
-          branches.value = [
-            {
-              id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
-              business_name: 'LaundryPro Demo Store',
-              tenant_code: 'LAUN011',
-              subscription_plans: { max_outlets: 3, name: 'Pro' }
-            }
-          ]
+          branches.value = []
         }
       }
 
-      if (!activeBranchId.value || !branches.value.some(b => b.id === activeBranchId.value)) {
-        activeBranchId.value = branches.value[0].id
-        localStorage.setItem('owner_active_branch_id', activeBranchId.value)
+      if (branches.value.length > 0) {
+        if (!activeBranchId.value || !branches.value.some(b => b.id === activeBranchId.value)) {
+          activeBranchId.value = branches.value[0].id
+          localStorage.setItem('owner_active_branch_id', activeBranchId.value)
+        }
+      } else {
+        activeBranchId.value = ''
       }
     } catch (err) {
       console.warn('Error fetching owner branches:', err)
-      if (branches.value.length === 0) {
-        branches.value = [
-          authStore.activeTenant || {
-            id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
-            business_name: 'LaundryPro Demo Store',
-            tenant_code: 'LAUN011',
-            subscription_plans: { max_outlets: 3, name: 'Pro' }
-          }
-        ]
-      }
-      if (!activeBranchId.value) {
-        activeBranchId.value = branches.value[0].id
+      if (authStore.activeTenant) {
+        branches.value = [authStore.activeTenant]
+        activeBranchId.value = authStore.activeTenant.id
+      } else {
+        branches.value = []
+        activeBranchId.value = ''
       }
     }
   }
@@ -145,7 +136,6 @@ export const useOwnerStore = defineStore('owner', () => {
 
       if (error) {
         console.warn('Error checking tenant code uniqueness:', error)
-        // If error, perform check against local branches
         return !branches.value.some(b => b.tenant_code === formattedCode)
       }
 
@@ -193,7 +183,7 @@ export const useOwnerStore = defineStore('owner', () => {
         insertedBranch = {
           ...newBranchData,
           id: `branch-${Date.now()}`,
-          subscription_plans: primaryBranch.subscription_plans || { max_outlets: 3 }
+          subscription_plans: primaryBranch.subscription_plans || { max_outlets: 1 }
         }
       }
 
@@ -255,7 +245,7 @@ export const useOwnerStore = defineStore('owner', () => {
     try {
       const branchIds = branches.value.map(b => b.id)
       if (branchIds.length === 0) {
-        staffList.value = getSeedStaff()
+        staffList.value = []
         return
       }
 
@@ -267,29 +257,23 @@ export const useOwnerStore = defineStore('owner', () => {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-
-      if (data && data.length > 0) {
-        staffList.value = data
-      } else {
-        staffList.value = getSeedStaff()
-      }
+      staffList.value = data || []
     } catch (err) {
-      console.warn('Using seed staff due to fetch error:', err)
-      staffList.value = getSeedStaff()
+      console.warn('Error fetching staff from Supabase:', err)
+      staffList.value = []
     }
   }
 
   // Create Staff assigned to specific branch
   async function createStaff(payload) {
     isLoading.value = true
-    const assignedTenant = branches.value.find(b => b.id === payload.tenant_id) || branches.value[0]
-    const tenantCodeClean = (assignedTenant?.tenant_code || 'LAUN011').toLowerCase()
+    const assignedTenant = branches.value.find(b => b.id === payload.tenant_id) || branches.value[0] || {}
+    const tenantCodeClean = (assignedTenant?.tenant_code || 'laun').toLowerCase()
     const usernameClean = payload.username.trim().toLowerCase()
     const virtualEmail = `${usernameClean}.${tenantCodeClean}@laundrypro.app`
 
     let createdAuthUserId = null
 
-    // Attempt Supabase Auth Sign Up if possible
     try {
       const { data: authData } = await supabase.auth.signUp({
         email: virtualEmail,
@@ -342,7 +326,7 @@ export const useOwnerStore = defineStore('owner', () => {
     }
   }
 
-  // Update Staff Details (e.g. branch assignment, full name, username, active status)
+  // Update Staff Details
   async function updateStaff(id, payload) {
     isLoading.value = true
     const staffIndex = staffList.value.findIndex(s => s.id === id)
@@ -499,6 +483,10 @@ export const useOwnerStore = defineStore('owner', () => {
   // Fetch Financial Transactions
   async function fetchTransactions() {
     const tenantId = getTenantId()
+    if (!tenantId) {
+      transactions.value = []
+      return
+    }
     try {
       const { data, error } = await supabase
         .from('transactions')
@@ -507,17 +495,13 @@ export const useOwnerStore = defineStore('owner', () => {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        transactions.value = data.map(tx => ({
-          ...tx,
-          items: tx.transaction_items || tx.items || []
-        }))
-      } else {
-        transactions.value = getSeedTransactions()
-      }
+      transactions.value = data ? data.map(tx => ({
+        ...tx,
+        items: tx.transaction_items || tx.items || []
+      })) : []
     } catch (err) {
-      console.warn('Using seed transactions due to fetch error:', err.message)
-      transactions.value = getSeedTransactions()
+      console.warn('Error fetching transactions:', err.message)
+      transactions.value = []
     }
   }
 
@@ -616,6 +600,10 @@ export const useOwnerStore = defineStore('owner', () => {
   // Fetch Expenses
   async function fetchExpenses() {
     const tenantId = getTenantId()
+    if (!tenantId) {
+      expenses.value = []
+      return
+    }
     try {
       const { data, error } = await supabase
         .from('expenses')
@@ -624,14 +612,10 @@ export const useOwnerStore = defineStore('owner', () => {
         .order('date', { ascending: false })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        expenses.value = data
-      } else {
-        expenses.value = getSeedExpenses()
-      }
+      expenses.value = data || []
     } catch (err) {
-      console.warn('Using seed expenses due to fetch error:', err.message)
-      expenses.value = getSeedExpenses()
+      console.warn('Error fetching expenses:', err.message)
+      expenses.value = []
     }
   }
 
@@ -682,6 +666,10 @@ export const useOwnerStore = defineStore('owner', () => {
   // Fetch Services
   async function fetchServices() {
     const tenantId = getTenantId()
+    if (!tenantId) {
+      services.value = []
+      return
+    }
     try {
       const { data, error } = await supabase
         .from('services')
@@ -690,14 +678,10 @@ export const useOwnerStore = defineStore('owner', () => {
         .order('name', { ascending: true })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        services.value = data
-      } else {
-        services.value = getSeedServices()
-      }
+      services.value = data || []
     } catch (err) {
-      console.warn('Using seed services due to fetch error:', err.message)
-      services.value = getSeedServices()
+      console.warn('Error fetching services:', err.message)
+      services.value = []
     }
   }
 
@@ -756,6 +740,7 @@ export const useOwnerStore = defineStore('owner', () => {
   // Fetch Tenant Loyalty Settings
   async function fetchTenantLoyalty() {
     const tenantId = getTenantId()
+    if (!tenantId) return
     try {
       const { data, error } = await supabase
         .from('tenants')
@@ -801,6 +786,10 @@ export const useOwnerStore = defineStore('owner', () => {
   // Fetch Promotions
   async function fetchPromotions() {
     const tenantId = getTenantId()
+    if (!tenantId) {
+      promotions.value = []
+      return
+    }
     try {
       const { data, error } = await supabase
         .from('promotions')
@@ -809,14 +798,10 @@ export const useOwnerStore = defineStore('owner', () => {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        promotions.value = data
-      } else {
-        promotions.value = getSeedPromotions()
-      }
+      promotions.value = data || []
     } catch (err) {
-      console.warn('Using seed promotions due to fetch error:', err.message)
-      promotions.value = getSeedPromotions()
+      console.warn('Error fetching promotions:', err.message)
+      promotions.value = []
     }
   }
 
@@ -885,158 +870,6 @@ export const useOwnerStore = defineStore('owner', () => {
       fetchStaff()
     ])
     isLoading.value = false
-  }
-
-  // Seed Data Helpers for Fallback
-  function getSeedTransactions() {
-    const today = new Date().toISOString().slice(0, 10)
-    return [
-      {
-        id: 'tx-1',
-        receipt_number: 'TRX-241019-1001',
-        total_amount: 35000,
-        payment_method: 'qris',
-        payment_status: 'paid',
-        production_status: 'diproses',
-        service_type: 'kiloan',
-        total_kg: 5,
-        total_coins: 0,
-        customer_name: 'Budi Santoso',
-        customer_phone: '081234567890',
-        is_void: false,
-        created_at: `${today}T09:30:00.000Z`,
-        items: [{ id: 'i-1', name: 'Cuci Kiloan Reguler', qty: 5, unit: 'kg', price: 7000 }]
-      },
-      {
-        id: 'tx-2',
-        receipt_number: 'TRX-241019-1002',
-        total_amount: 50000,
-        payment_method: 'cash',
-        payment_status: 'unpaid',
-        production_status: 'siap_diambil',
-        service_type: 'koin',
-        total_kg: 0,
-        total_coins: 2,
-        customer_name: 'Siti Aminah',
-        customer_phone: '089876543210',
-        is_void: false,
-        created_at: `${today}T11:15:00.000Z`,
-        items: [{ id: 'i-2', name: 'Paket Koin Cuci + Pengering', qty: 2, unit: 'paket', price: 25000 }]
-      },
-      {
-        id: 'tx-3',
-        receipt_number: 'TRX-241019-1003',
-        total_amount: 42000,
-        payment_method: 'qris',
-        payment_status: 'paid',
-        production_status: 'selesai',
-        service_type: 'kiloan',
-        total_kg: 6,
-        total_coins: 0,
-        customer_name: 'Ahmad Dahlan',
-        customer_phone: '081122334455',
-        is_void: false,
-        created_at: `${today}T14:20:00.000Z`,
-        items: [{ id: 'i-3', name: 'Cuci Kiloan Express', qty: 6, unit: 'kg', price: 7000 }]
-      },
-      {
-        id: 'tx-4',
-        receipt_number: 'TRX-241019-1004',
-        total_amount: 75000,
-        payment_method: 'cash',
-        payment_status: 'paid',
-        production_status: 'diproses',
-        service_type: 'mixed',
-        total_kg: 4,
-        total_coins: 1,
-        customer_name: 'Dewi Lestari',
-        customer_phone: '085678901234',
-        is_void: false,
-        created_at: `${today}T16:45:00.000Z`,
-        items: [
-          { id: 'i-4', name: 'Cuci Kiloan Reguler', qty: 4, unit: 'kg', price: 7000 },
-          { id: 'i-5', name: 'Paket Koin Self-Service', qty: 1, unit: 'paket', price: 25000 }
-        ]
-      },
-      {
-        id: 'tx-5',
-        receipt_number: 'TRX-241019-1005',
-        total_amount: 30000,
-        payment_method: 'cash',
-        payment_status: 'paid',
-        production_status: 'diproses',
-        service_type: 'kiloan',
-        total_kg: 3,
-        total_coins: 0,
-        customer_name: 'Rudi Hermawan',
-        customer_phone: '081399887766',
-        is_void: true,
-        void_reason: 'Salah input berat pakaian',
-        voided_at: `${today}T17:00:00.000Z`,
-        created_at: `${today}T16:50:00.000Z`,
-        items: [
-          { id: 'i-6', name: 'Cuci Kiloan Express', qty: 3, unit: 'kg', price: 10000 }
-        ]
-      }
-    ]
-  }
-
-  function getSeedExpenses() {
-    const today = new Date().toISOString().slice(0, 10)
-    return [
-      { id: 'exp-1', category: 'Listrik', amount: 150000, date: today, notes: 'Token Listrik PLN Toko', created_at: `${today}T08:00:00Z` },
-      { id: 'exp-2', category: 'Air', amount: 80000, date: today, notes: 'Tagihan Air PDAM', created_at: `${today}T08:05:00Z` },
-      { id: 'exp-3', category: 'Operasional', amount: 45000, date: today, notes: 'Beli Deterjen Liquid 5L', created_at: `${today}T10:00:00Z` }
-    ]
-  }
-
-  function getSeedServices() {
-    return [
-      { id: 'srv-1', name: 'Cuci Kiloan Reguler', category: 'kiloan', price: 7000, unit: 'kg', is_active: true },
-      { id: 'srv-2', name: 'Cuci Kiloan Express (6 Jam)', category: 'kiloan', price: 10000, unit: 'kg', is_active: true },
-      { id: 'srv-3', name: 'Paket Koin Washer + Dryer', category: 'koin', price: 25000, unit: 'paket', is_active: true },
-      { id: 'srv-4', name: 'Cuci Bedcover Heavy', category: 'satuan', price: 35000, unit: 'pcs', is_active: true },
-      { id: 'srv-5', name: 'Cuci Sepatu Premium', category: 'satuan', price: 30000, unit: 'pasang', is_active: false }
-    ]
-  }
-
-  function getSeedPromotions() {
-    const today = new Date().toISOString().slice(0, 10)
-    const nextMonth = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    return [
-      { id: 'promo-1', code: 'BERSIH50', discount_type: 'percentage', discount_value: 10, start_date: today, end_date: nextMonth, is_active: true },
-      { id: 'promo-2', code: 'PROMOHEMAT10K', discount_type: 'fixed', discount_value: 10000, start_date: today, end_date: nextMonth, is_active: true }
-    ]
-  }
-
-  function getSeedStaff() {
-    const branch = branches.value[0] || { id: 'ed0ab708-7d43-45cc-a6db-8714a599e950', business_name: 'LaundryPro Demo Store', tenant_code: 'LAUN011' }
-    return [
-      {
-        id: 's-1',
-        full_name: 'Siti Rahma',
-        username: 'siti_kasir',
-        is_active: true,
-        tenant_id: branch.id,
-        tenants: { business_name: branch.business_name, tenant_code: branch.tenant_code }
-      },
-      {
-        id: 's-2',
-        full_name: 'Budi Santoso',
-        username: 'budi_kasir',
-        is_active: true,
-        tenant_id: branch.id,
-        tenants: { business_name: branch.business_name, tenant_code: branch.tenant_code }
-      },
-      {
-        id: 's-3',
-        full_name: 'Dewi Lestari',
-        username: 'dewi_kasir',
-        is_active: false,
-        tenant_id: branch.id,
-        tenants: { business_name: branch.business_name, tenant_code: branch.tenant_code }
-      }
-    ]
   }
 
   return {

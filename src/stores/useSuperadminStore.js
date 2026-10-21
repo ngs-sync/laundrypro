@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { supabase } from '../lib/supabase'
 
 export const useSuperadminStore = defineStore('superadmin', () => {
@@ -8,74 +8,6 @@ export const useSuperadminStore = defineStore('superadmin', () => {
   const plans = ref([])
   const isLoading = ref(false)
   const errorMessage = ref('')
-
-  // Default seed plans fallback if Supabase is offline/empty
-  const seedPlans = [
-    {
-      id: '1441143d-db68-40cc-94b7-879cfea47a49',
-      plan_code: 'starter',
-      name: 'Starter (Gratis)',
-      billing_type: 'monthly',
-      price: 0,
-      price_per_order: 0,
-      order_quota: 50,
-      max_outlets: 1,
-      max_staff: 1,
-      is_active: true
-    },
-    {
-      id: '87112388-fd51-447b-8874-98d8b95a4c4d',
-      plan_code: 'pro',
-      name: 'Pro (Rame)',
-      billing_type: 'monthly',
-      price: 50000,
-      price_per_order: 0,
-      order_quota: 0,
-      max_outlets: 3,
-      max_staff: 5,
-      is_active: true
-    },
-    {
-      id: '87d61d7b-4882-4fe2-ab23-748fc8914b99',
-      plan_code: 'business',
-      name: 'Business (Multi)',
-      billing_type: 'monthly',
-      price: 150000,
-      price_per_order: 0,
-      order_quota: 0,
-      max_outlets: 99,
-      max_staff: 99,
-      is_active: true
-    },
-    {
-      id: 'fcb2a71b-1204-446c-8c75-716a7500d894',
-      plan_code: 'pay_as_you_go',
-      name: 'Pay-as-You-Go',
-      billing_type: 'pay_as_you_go',
-      price: 0,
-      price_per_order: 250,
-      order_quota: 50,
-      max_outlets: 1,
-      max_staff: 1,
-      is_active: true
-    }
-  ]
-
-  // Default seed tenants fallback
-  const seedTenants = [
-    {
-      id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
-      business_name: 'LaundryPro Demo Store',
-      tenant_code: 'LAUN011',
-      phone_number: '081234567890',
-      plan_id: '1441143d-db68-40cc-94b7-879cfea47a49',
-      billing_type: 'monthly',
-      wallet_balance: 0,
-      subscription_status: 'active',
-      is_deleted: false,
-      subscription_plans: seedPlans[0]
-    }
-  ]
 
   // --- ACTIONS ---
 
@@ -92,14 +24,10 @@ export const useSuperadminStore = defineStore('superadmin', () => {
         .order('price', { ascending: true })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        plans.value = data
-      } else {
-        plans.value = seedPlans
-      }
+      plans.value = data || []
     } catch (err) {
-      console.warn('Gagal mengambil subscription_plans dari Supabase, menggunakan seed data:', err)
-      plans.value = seedPlans
+      console.warn('Gagal mengambil subscription_plans dari Supabase:', err)
+      plans.value = []
     } finally {
       isLoading.value = false
     }
@@ -135,7 +63,7 @@ export const useSuperadminStore = defineStore('superadmin', () => {
         }
       }
     } catch (err) {
-      console.warn('Gagal mengupdate plan di Supabase, mengupdate secara lokal:', err)
+      console.warn('Gagal mengupdate plan di Supabase:', err)
       const index = plans.value.findIndex(p => p.id === id)
       if (index !== -1) {
         plans.value[index] = { ...plans.value[index], ...payload }
@@ -162,14 +90,10 @@ export const useSuperadminStore = defineStore('superadmin', () => {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      if (data && data.length > 0) {
-        tenants.value = data
-      } else {
-        tenants.value = seedTenants
-      }
+      tenants.value = data || []
     } catch (err) {
-      console.warn('Gagal mengambil tenants dari Supabase, menggunakan seed data:', err)
-      tenants.value = seedTenants
+      console.warn('Gagal mengambil tenants dari Supabase:', err)
+      tenants.value = []
     } finally {
       isLoading.value = false
     }
