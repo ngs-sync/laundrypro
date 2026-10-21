@@ -6,10 +6,17 @@ import { useAuthStore } from './useAuthStore'
 export const useOwnerStore = defineStore('owner', () => {
   const authStore = useAuthStore()
 
-  // Filter Tanggal: 'today' | 'this_month' | 'custom'
+  // Branch Switcher State
+  const branches = ref([])
+  const activeBranchId = ref(localStorage.getItem('owner_active_branch_id') || '')
+
+  // Filter Tanggal: 'today' | '7_days' | 'this_month' | 'custom'
   const dateFilter = ref('this_month')
   const customStartDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10))
   const customEndDate = ref(new Date().toISOString().slice(0, 10))
+
+  // Filter Status Transaksi: 'all' | 'diproses' | 'siap_diambil' | 'selesai' | 'void'
+  const statusFilter = ref('all')
 
   // State Data
   const transactions = ref([])
@@ -24,9 +31,64 @@ export const useOwnerStore = defineStore('owner', () => {
   const isLoading = ref(false)
   const errorMessage = ref('')
 
-  // Helper: get current tenant_id
+  // Helper: get current active tenant_id
   function getTenantId() {
-    return authStore.activeTenant?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
+    return activeBranchId.value || authStore.activeTenant?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
+  }
+
+  // Fetch branches for logged in owner user
+  async function fetchBranches() {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const authUserId = sessionData?.session?.user?.id || authStore.user?.id
+
+      if (authUserId) {
+        const { data: userRecords, error: userError } = await supabase
+          .from('users')
+          .select('tenant_id, tenants(*)')
+          .eq('auth_user_id', authUserId)
+
+        if (!userError && userRecords && userRecords.length > 0) {
+          const tenantList = userRecords
+            .map(ur => ur.tenants)
+            .filter(t => t && !t.is_deleted)
+          if (tenantList.length > 0) {
+            branches.value = tenantList
+          }
+        }
+      }
+
+      if (branches.value.length === 0) {
+        if (authStore.activeTenant) {
+          branches.value = [authStore.activeTenant]
+        } else {
+          branches.value = [
+            { id: 'ed0ab708-7d43-45cc-a6db-8714a599e950', business_name: 'LaundryPro Demo Store' }
+          ]
+        }
+      }
+
+      if (!activeBranchId.value || !branches.value.some(b => b.id === activeBranchId.value)) {
+        activeBranchId.value = branches.value[0].id
+        localStorage.setItem('owner_active_branch_id', activeBranchId.value)
+      }
+    } catch (err) {
+      console.warn('Error fetching owner branches:', err)
+      if (branches.value.length === 0) {
+        branches.value = [
+          authStore.activeTenant || { id: 'ed0ab708-7d43-45cc-a6db-8714a599e950', business_name: 'LaundryPro Demo Store' }
+        ]
+      }
+      if (!activeBranchId.value) {
+        activeBranchId.value = branches.value[0].id
+      }
+    }
+  }
+
+  function setActiveBranch(branchId) {
+    activeBranchId.value = branchId
+    localStorage.setItem('owner_active_branch_id', branchId)
+    fetchAllOwnerData()
   }
 
   // Calculate Start & End Date based on filter
@@ -38,9 +100,12 @@ export const useOwnerStore = defineStore('owner', () => {
     if (dateFilter.value === 'today') {
       start.setHours(0, 0, 0, 0)
       end.setHours(23, 59, 59, 999)
+    } else if (dateFilter.value === '7_days') {
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0)
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
     } else if (dateFilter.value === 'this_month') {
       start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0)
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
     } else if (dateFilter.value === 'custom') {
       start = customStartDate.value ? new Date(`${customStartDate.value}T00:00:00`) : new Date(0)
       end = customEndDate.value ? new Date(`${customEndDate.value}T23:59:59`) : new Date()
@@ -49,12 +114,30 @@ export const useOwnerStore = defineStore('owner', () => {
     return { start, end }
   })
 
-  // Filtered Transactions & Expenses based on Date Range
+  // Filtered Transactions based on Date Range and Status Filter
   const filteredTransactions = computed(() => {
     const { start, end } = dateRange.value
     return transactions.value.filter(tx => {
       const txDate = new Date(tx.created_at || tx.date)
-      return txDate >= start && txDate <= end
+      const matchesDate = txDate >= start && txDate <= end
+      if (!matchesDate) return false
+
+      if (statusFilter.value === 'all') return true
+      if (statusFilter.value === 'void') return tx.is_void === true
+      if (tx.is_void) return false
+
+      const prodStatus = (tx.production_status || 'diproses').toLowerCase()
+      if (statusFilter.value === 'diproses') {
+        return prodStatus === 'diproses' || prodStatus === 'proses'
+      }
+      if (statusFilter.value === 'siap_diambil') {
+        return prodStatus === 'siap_diambil' || prodStatus === 'siap'
+      }
+      if (statusFilter.value === 'selesai') {
+        return prodStatus === 'selesai'
+      }
+
+      return true
     })
   })
 
@@ -66,9 +149,13 @@ export const useOwnerStore = defineStore('owner', () => {
     })
   })
 
-  // Metrics Financial & Operational Calculations
+  // Metrics Financial & Operational Calculations (EXCLUDING VOID TRANSACTIONS)
+  const validTransactions = computed(() => {
+    return filteredTransactions.value.filter(tx => !tx.is_void)
+  })
+
   const totalOmzet = computed(() => {
-    return filteredTransactions.value.reduce((sum, tx) => sum + (Number(tx.total_amount) || 0), 0)
+    return validTransactions.value.reduce((sum, tx) => sum + (Number(tx.total_amount) || 0), 0)
   })
 
   const totalPengeluaran = computed(() => {
@@ -80,7 +167,7 @@ export const useOwnerStore = defineStore('owner', () => {
   })
 
   const totalKgProcessed = computed(() => {
-    return filteredTransactions.value.reduce((sum, tx) => {
+    return validTransactions.value.reduce((sum, tx) => {
       if (tx.service_type === 'kiloan' || tx.service_type === 'mixed') {
         const kgFromItems = tx.items ? tx.items.filter(i => i.unit === 'kg' || i.type === 'kiloan').reduce((s, i) => s + (Number(i.quantity || i.qty) || 0), 0) : 0
         return sum + (kgFromItems || tx.total_kg || 0)
@@ -90,7 +177,7 @@ export const useOwnerStore = defineStore('owner', () => {
   })
 
   const totalCoinsUsed = computed(() => {
-    return filteredTransactions.value.reduce((sum, tx) => {
+    return validTransactions.value.reduce((sum, tx) => {
       if (tx.service_type === 'koin' || tx.service_type === 'mixed') {
         const coinFromItems = tx.items ? tx.items.filter(i => i.unit === 'paket' || i.type === 'coin').reduce((s, i) => s + (Number(i.quantity || i.qty) || 0), 0) : 0
         return sum + (coinFromItems || tx.total_coins || 0)
@@ -105,7 +192,7 @@ export const useOwnerStore = defineStore('owner', () => {
     let cashCount = 0
     let qrisCount = 0
 
-    filteredTransactions.value.forEach(tx => {
+    validTransactions.value.forEach(tx => {
       const amt = Number(tx.total_amount) || 0
       if (tx.payment_method === 'qris') {
         qris += amt
@@ -136,15 +223,109 @@ export const useOwnerStore = defineStore('owner', () => {
 
       if (error) throw error
       if (data && data.length > 0) {
-        transactions.value = data
+        transactions.value = data.map(tx => ({
+          ...tx,
+          items: tx.transaction_items || tx.items || []
+        }))
       } else {
-        // Fallback seed data if empty in local demo
         transactions.value = getSeedTransactions()
       }
     } catch (err) {
       console.warn('Using seed transactions due to fetch error:', err.message)
       transactions.value = getSeedTransactions()
     }
+  }
+
+  // Update Production Status
+  async function updateProductionStatus(transactionId, status) {
+    const txIndex = transactions.value.findIndex(t => t.id === transactionId)
+    if (txIndex > -1) {
+      transactions.value[txIndex].production_status = status
+    }
+
+    try {
+      await supabase
+        .from('transactions')
+        .update({ production_status: status })
+        .eq('id', transactionId)
+    } catch (err) {
+      console.warn('Local update for production status:', err)
+    }
+  }
+
+  // Mark Transaction as Paid
+  async function markAsPaid(transactionId) {
+    const txIndex = transactions.value.findIndex(t => t.id === transactionId)
+    if (txIndex > -1) {
+      transactions.value[txIndex].payment_status = 'paid'
+    }
+
+    try {
+      await supabase
+        .from('transactions')
+        .update({ payment_status: 'paid' })
+        .eq('id', transactionId)
+    } catch (err) {
+      console.warn('Local update for payment status:', err)
+    }
+  }
+
+  // Void Transaction (Soft Void)
+  async function voidTransaction(transactionId, reason) {
+    const nowIso = new Date().toISOString()
+    const txIndex = transactions.value.findIndex(t => t.id === transactionId)
+    if (txIndex > -1) {
+      transactions.value[txIndex] = {
+        ...transactions.value[txIndex],
+        is_void: true,
+        void_reason: reason,
+        voided_at: nowIso
+      }
+    }
+
+    try {
+      await supabase
+        .from('transactions')
+        .update({
+          is_void: true,
+          void_reason: reason,
+          voided_at: nowIso
+        })
+        .eq('id', transactionId)
+    } catch (err) {
+      console.warn('Local update for void transaction:', err)
+    }
+  }
+
+  // Send WhatsApp Receipt
+  function sendWhatsAppReceipt(tx) {
+    if (!tx) return
+    const phone = tx.customer_phone || ''
+    let cleanPhone = phone.replace(/[^0-9]/g, '')
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.slice(1)
+    }
+
+    const currentBranchName = branches.value.find(b => b.id === getTenantId())?.business_name || authStore.activeTenant?.name || 'LaundryPro'
+    const totalFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(tx.total_amount || 0)
+
+    let msg = `*STRUK TRANSAKSI - ${currentBranchName.toUpperCase()}*\n`
+    msg += `-------------------------------------------\n`
+    msg += `No. Nota: ${tx.receipt_number || tx.id}\n`
+    msg += `Pelanggan: ${tx.customer_name || 'Pelanggan'}\n`
+    msg += `Total Tagihan: ${totalFormatted}\n`
+    msg += `Metode Bayar: ${(tx.payment_method || 'CASH').toUpperCase()}\n`
+    msg += `Status Bayar: ${tx.payment_status === 'paid' || tx.payment_status === 'lunas' ? 'LUNAS' : 'BELUM LUNAS'}\n`
+    msg += `Status Produksi: ${(tx.production_status || 'diproses').toUpperCase()}\n`
+
+    if (tx.receipt_pdf_url) {
+      msg += `\nUnduh Struk PDF: ${tx.receipt_pdf_url}\n`
+    }
+    msg += `\nTerima kasih telah mempercayakan pakaian Anda kepada kami!`
+
+    const encodedMsg = encodeURIComponent(msg)
+    const waUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodedMsg}` : `https://wa.me/?text=${encodedMsg}`
+    window.open(waUrl, '_blank')
   }
 
   // Fetch Expenses
@@ -409,6 +590,7 @@ export const useOwnerStore = defineStore('owner', () => {
   // Load All Data
   async function fetchAllOwnerData() {
     isLoading.value = true
+    await fetchBranches()
     await Promise.all([
       fetchTransactions(),
       fetchExpenses(),
@@ -428,9 +610,14 @@ export const useOwnerStore = defineStore('owner', () => {
         receipt_number: 'TRX-241019-1001',
         total_amount: 35000,
         payment_method: 'qris',
+        payment_status: 'paid',
+        production_status: 'diproses',
         service_type: 'kiloan',
         total_kg: 5,
         total_coins: 0,
+        customer_name: 'Budi Santoso',
+        customer_phone: '081234567890',
+        is_void: false,
         created_at: `${today}T09:30:00.000Z`,
         items: [{ id: 'i-1', name: 'Cuci Kiloan Reguler', qty: 5, unit: 'kg', price: 7000 }]
       },
@@ -439,9 +626,14 @@ export const useOwnerStore = defineStore('owner', () => {
         receipt_number: 'TRX-241019-1002',
         total_amount: 50000,
         payment_method: 'cash',
+        payment_status: 'unpaid',
+        production_status: 'siap_diambil',
         service_type: 'koin',
         total_kg: 0,
         total_coins: 2,
+        customer_name: 'Siti Aminah',
+        customer_phone: '089876543210',
+        is_void: false,
         created_at: `${today}T11:15:00.000Z`,
         items: [{ id: 'i-2', name: 'Paket Koin Cuci + Pengering', qty: 2, unit: 'paket', price: 25000 }]
       },
@@ -450,9 +642,14 @@ export const useOwnerStore = defineStore('owner', () => {
         receipt_number: 'TRX-241019-1003',
         total_amount: 42000,
         payment_method: 'qris',
+        payment_status: 'paid',
+        production_status: 'selesai',
         service_type: 'kiloan',
         total_kg: 6,
         total_coins: 0,
+        customer_name: 'Ahmad Dahlan',
+        customer_phone: '081122334455',
+        is_void: false,
         created_at: `${today}T14:20:00.000Z`,
         items: [{ id: 'i-3', name: 'Cuci Kiloan Express', qty: 6, unit: 'kg', price: 7000 }]
       },
@@ -461,13 +658,38 @@ export const useOwnerStore = defineStore('owner', () => {
         receipt_number: 'TRX-241019-1004',
         total_amount: 75000,
         payment_method: 'cash',
+        payment_status: 'paid',
+        production_status: 'diproses',
         service_type: 'mixed',
         total_kg: 4,
         total_coins: 1,
+        customer_name: 'Dewi Lestari',
+        customer_phone: '085678901234',
+        is_void: false,
         created_at: `${today}T16:45:00.000Z`,
         items: [
           { id: 'i-4', name: 'Cuci Kiloan Reguler', qty: 4, unit: 'kg', price: 7000 },
           { id: 'i-5', name: 'Paket Koin Self-Service', qty: 1, unit: 'paket', price: 25000 }
+        ]
+      },
+      {
+        id: 'tx-5',
+        receipt_number: 'TRX-241019-1005',
+        total_amount: 30000,
+        payment_method: 'cash',
+        payment_status: 'paid',
+        production_status: 'diproses',
+        service_type: 'kiloan',
+        total_kg: 3,
+        total_coins: 0,
+        customer_name: 'Rudi Hermawan',
+        customer_phone: '081399887766',
+        is_void: true,
+        void_reason: 'Salah input berat pakaian',
+        voided_at: `${today}T17:00:00.000Z`,
+        created_at: `${today}T16:50:00.000Z`,
+        items: [
+          { id: 'i-6', name: 'Cuci Kiloan Express', qty: 3, unit: 'kg', price: 10000 }
         ]
       }
     ]
@@ -502,7 +724,10 @@ export const useOwnerStore = defineStore('owner', () => {
   }
 
   return {
+    branches,
+    activeBranchId,
     dateFilter,
+    statusFilter,
     customStartDate,
     customEndDate,
     transactions,
@@ -521,7 +746,13 @@ export const useOwnerStore = defineStore('owner', () => {
     totalKgProcessed,
     totalCoinsUsed,
     paymentMethodBreakdown,
+    fetchBranches,
+    setActiveBranch,
     fetchTransactions,
+    updateProductionStatus,
+    markAsPaid,
+    voidTransaction,
+    sendWhatsAppReceipt,
     fetchExpenses,
     addExpense,
     deleteExpense,

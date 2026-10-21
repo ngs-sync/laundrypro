@@ -1,13 +1,23 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useOwnerStore } from '../stores/useOwnerStore'
 import { useAuthStore } from '../stores/useAuthStore'
 
 const ownerStore = useOwnerStore()
 const authStore = useAuthStore()
 
-// Tab Active: 'financial' | 'expenses' | 'services' | 'promotions' | 'staff'
-const activeTab = ref('financial')
+// Tab Active: 'transactions' | 'financial' | 'expenses' | 'services' | 'promotions' | 'staff'
+const activeTab = ref('transactions')
+
+// Modal Status Produksi
+const showStatusModal = ref(false)
+const selectedTxForStatus = ref(null)
+const selectedProductionStatus = ref('diproses')
+
+// Modal Void Transaksi
+const showVoidModal = ref(false)
+const selectedTxForVoid = ref(null)
+const voidReasonInput = ref('')
 
 // Form Expense
 const newExpense = ref({
@@ -45,7 +55,7 @@ const newPromo = ref({
 })
 const promoSuccessMsg = ref('')
 
-// State Manajemen Staf (Tab 5)
+// State Manajemen Staf
 const staffList = ref([
   { id: 1, name: 'Siti Rahma', username: 'siti_kasir', is_active: true },
   { id: 2, name: 'Budi Santoso', username: 'budi_kasir', is_active: true },
@@ -72,13 +82,72 @@ onMounted(async () => {
   }
 })
 
-// Format Currency
+// Format Helpers
 function formatCurrency(val) {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
     minimumFractionDigits: 0
   }).format(val || 0)
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(d)
+}
+
+// Handlers Transaksi
+function openStatusModal(tx) {
+  selectedTxForStatus.value = tx
+  selectedProductionStatus.value = tx.production_status || 'diproses'
+  showStatusModal.value = true
+}
+
+async function handleUpdateStatusSubmit() {
+  if (!selectedTxForStatus.value) return
+  await ownerStore.updateProductionStatus(selectedTxForStatus.value.id, selectedProductionStatus.value)
+  showStatusModal.value = false
+  selectedTxForStatus.value = null
+}
+
+async function handleMarkAsPaid(tx) {
+  if (confirm(`Tandai transaksi #${tx.receipt_number || tx.id} sebagai LUNAS?`)) {
+    await ownerStore.markAsPaid(tx.id)
+  }
+}
+
+function openVoidModal(tx) {
+  selectedTxForVoid.value = tx
+  voidReasonInput.value = ''
+  showVoidModal.value = true
+}
+
+async function handleVoidSubmit() {
+  if (!voidReasonInput.value.trim()) {
+    alert('Harap masukkan alasan pembatalan nota.')
+    return
+  }
+  await ownerStore.voidTransaction(selectedTxForVoid.value.id, voidReasonInput.value.trim())
+  showVoidModal.value = false
+  selectedTxForVoid.value = null
+  voidReasonInput.value = ''
+}
+
+function handleSendWA(tx) {
+  ownerStore.sendWhatsAppReceipt(tx)
+}
+
+// Handlers Branch Switcher
+function handleBranchChange(event) {
+  const branchId = event.target.value
+  ownerStore.setActiveBranch(branchId)
 }
 
 // Handlers Expense, Service, Loyalty, Promo
@@ -168,11 +237,6 @@ function handleAddStaff() {
   }
 
   staffList.value.push(staffData)
-  console.log('Penambahan staf baru (MVP Local):', {
-    ...staffData,
-    initialPassword: newStaff.value.password
-  })
-
   staffSuccessMsg.value = `Staf ${staffData.name} berhasil ditambahkan!`
   setTimeout(() => (staffSuccessMsg.value = ''), 3000)
 
@@ -185,7 +249,6 @@ function handleAddStaff() {
 
 function handleToggleStaffStatus(staff) {
   staff.is_active = !staff.is_active
-  console.log(`Status staf '${staff.username}' diubah menjadi:`, staff.is_active ? 'Aktif' : 'Nonaktif')
 }
 
 function openResetPasswordModal(staff) {
@@ -200,8 +263,6 @@ function handleResetPasswordSubmit() {
     return
   }
 
-  console.log(`Reset password/PIN untuk staf '${selectedStaffForReset.value.username}':`, resetPasswordInput.value)
-
   resetSuccessMsg.value = `Password untuk ${selectedStaffForReset.value.name} berhasil direset!`
   setTimeout(() => (resetSuccessMsg.value = ''), 3000)
 
@@ -215,35 +276,71 @@ function handleResetPasswordSubmit() {
   <div class="min-h-screen bg-[#F8FAFC] pb-12">
     <!-- Header Dasbor Pemilik -->
     <header class="bg-[#0F172A] text-white pt-6 pb-5 px-4 shadow-md">
-      <div class="max-w-4xl mx-auto flex flex-col gap-3">
-        <div class="flex items-center justify-between">
+      <div class="max-w-6xl mx-auto flex flex-col gap-4">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <div class="flex items-center gap-2">
               <span class="text-2xl">👑</span>
               <h1 class="text-xl font-extrabold tracking-tight">Portal Pemilik (Owner Dashboard)</h1>
             </div>
             <p class="text-xs text-slate-400 mt-0.5">
-              Kelola finansial, beban operasional, tarif layanan, dan promo toko
-              <span class="text-[#10B981] font-bold">({{ authStore.activeTenant?.name }})</span>
+              Kelola cabang, transaksi, finansial, beban operasional, dan staf
             </p>
           </div>
-          <button
-            @click="ownerStore.fetchAllOwnerData"
-            :disabled="ownerStore.isLoading"
-            class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold border border-slate-700 transition-all flex items-center gap-1 active:translate-y-[1px]"
-            title="Muat Ulang Data"
-          >
-            <span :class="{ 'animate-spin': ownerStore.isLoading }">🔄</span>
-            <span class="hidden sm:inline">Refresh</span>
-          </button>
+
+          <!-- Branch Switcher & Manual Refresh Button -->
+          <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            <!-- Branch Switcher Dropdown -->
+            <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-bold w-full sm:w-auto">
+              <span class="text-slate-400">🏪 Cabang:</span>
+              <select
+                :value="ownerStore.activeBranchId"
+                @change="handleBranchChange"
+                class="bg-transparent text-white font-bold text-xs focus:outline-none cursor-pointer pr-2"
+              >
+                <option
+                  v-for="branch in ownerStore.branches"
+                  :key="branch.id"
+                  :value="branch.id"
+                  class="bg-[#0F172A] text-white"
+                >
+                  {{ branch.business_name || branch.name }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Manual Refresh Button -->
+            <button
+              @click="ownerStore.fetchAllOwnerData"
+              :disabled="ownerStore.isLoading"
+              class="px-3 py-2 bg-[#10B981] hover:bg-[#059669] text-white rounded-lg text-xs font-extrabold border border-[#10B981] transition-all flex items-center gap-1.5 active:translate-y-[1px] shadow-sm ml-auto sm:ml-0"
+              title="Muat Ulang Data"
+            >
+              <span :class="{ 'animate-spin': ownerStore.isLoading }">🔄</span>
+              <span>Refresh Data</span>
+            </button>
+          </div>
         </div>
 
         <!-- Navigasi Tab Utama -->
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-1 bg-slate-900/80 p-1.5 rounded-xl border border-slate-800 text-xs font-bold mt-2">
+        <div class="grid grid-cols-2 sm:grid-cols-6 gap-1 bg-slate-900/80 p-1.5 rounded-xl border border-slate-800 text-xs font-bold mt-1">
+          <button
+            @click="activeTab = 'transactions'"
+            :class="[
+              'py-2.5 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
+              activeTab === 'transactions'
+                ? 'bg-[#10B981] text-white shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            ]"
+          >
+            <span>📄</span>
+            <span>Daftar Transaksi</span>
+          </button>
+
           <button
             @click="activeTab = 'financial'"
             :class="[
-              'py-2 px-1 rounded-lg transition-all text-center flex flex-col sm:flex-row items-center justify-center gap-1',
+              'py-2.5 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
               activeTab === 'financial'
                 ? 'bg-[#10B981] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -256,7 +353,7 @@ function handleResetPasswordSubmit() {
           <button
             @click="activeTab = 'expenses'"
             :class="[
-              'py-2 px-1 rounded-lg transition-all text-center flex flex-col sm:flex-row items-center justify-center gap-1',
+              'py-2.5 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
               activeTab === 'expenses'
                 ? 'bg-[#10B981] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -269,7 +366,7 @@ function handleResetPasswordSubmit() {
           <button
             @click="activeTab = 'services'"
             :class="[
-              'py-2 px-1 rounded-lg transition-all text-center flex flex-col sm:flex-row items-center justify-center gap-1',
+              'py-2.5 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
               activeTab === 'services'
                 ? 'bg-[#10B981] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -282,7 +379,7 @@ function handleResetPasswordSubmit() {
           <button
             @click="activeTab = 'promotions'"
             :class="[
-              'py-2 px-1 rounded-lg transition-all text-center flex flex-col sm:flex-row items-center justify-center gap-1',
+              'py-2.5 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
               activeTab === 'promotions'
                 ? 'bg-[#10B981] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -295,29 +392,357 @@ function handleResetPasswordSubmit() {
           <button
             @click="activeTab = 'staff'"
             :class="[
-              'py-2 px-1 rounded-lg transition-all text-center flex flex-col sm:flex-row items-center justify-center gap-1 col-span-2 sm:col-span-1',
+              'py-2.5 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1.5',
               activeTab === 'staff'
                 ? 'bg-[#10B981] text-white shadow-sm'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             ]"
           >
             <span>👥</span>
-            <span>Manajemen Staf</span>
+            <span>Staf</span>
           </button>
         </div>
       </div>
     </header>
 
     <!-- Content Body -->
-    <main class="max-w-4xl mx-auto p-4 sm:p-6 flex flex-col gap-6">
+    <main class="max-w-6xl mx-auto p-4 sm:p-6 flex flex-col gap-6">
+
+      <!-- ================= TAB 0: DAFTAR TRANSAKSI & KONTROL CABANG ================= -->
+      <div v-if="activeTab === 'transactions'" class="flex flex-col gap-6">
+        <!-- Filter Bar: Status Chips & Date Range -->
+        <div class="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <!-- Filter Status Chips -->
+          <div class="flex flex-col gap-1.5 w-full lg:w-auto">
+            <span class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider">Status Transaksi:</span>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                @click="ownerStore.statusFilter = 'all'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all border',
+                  ownerStore.statusFilter === 'all'
+                    ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-xs'
+                    : 'bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0] hover:bg-slate-100'
+                ]"
+              >
+                Semua
+              </button>
+
+              <button
+                @click="ownerStore.statusFilter = 'diproses'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all border',
+                  ownerStore.statusFilter === 'diproses'
+                    ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                ]"
+              >
+                🔄 Diproses
+              </button>
+
+              <button
+                @click="ownerStore.statusFilter = 'siap_diambil'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all border',
+                  ownerStore.statusFilter === 'siap_diambil'
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                    : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                ]"
+              >
+                🧺 Siap Diambil
+              </button>
+
+              <button
+                @click="ownerStore.statusFilter = 'selesai'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all border',
+                  ownerStore.statusFilter === 'selesai'
+                    ? 'bg-[#10B981] text-white border-[#10B981] shadow-xs'
+                    : 'bg-[#ECFDF5] text-[#00422B] border-[#10B981]/30 hover:bg-emerald-100'
+                ]"
+              >
+                ✅ Selesai
+              </button>
+
+              <button
+                @click="ownerStore.statusFilter = 'void'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all border',
+                  ownerStore.statusFilter === 'void'
+                    ? 'bg-[#F43F5E] text-white border-[#F43F5E] shadow-xs'
+                    : 'bg-[#FFF1F2] text-[#9F1239] border-[#F43F5E]/30 hover:bg-rose-100'
+                ]"
+              >
+                🚫 Dibatalkan (Void)
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Rentang Tanggal -->
+          <div class="flex flex-col gap-1.5 w-full lg:w-auto">
+            <span class="text-[11px] font-bold text-[#64748B] uppercase tracking-wider">Rentang Tanggal:</span>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                @click="ownerStore.dateFilter = 'today'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                  ownerStore.dateFilter === 'today'
+                    ? 'bg-[#10B981] text-white border-[#10B981]'
+                    : 'bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0] hover:bg-slate-100'
+                ]"
+              >
+                Hari Ini
+              </button>
+              <button
+                @click="ownerStore.dateFilter = '7_days'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                  ownerStore.dateFilter === '7_days'
+                    ? 'bg-[#10B981] text-white border-[#10B981]'
+                    : 'bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0] hover:bg-slate-100'
+                ]"
+              >
+                7 Hari
+              </button>
+              <button
+                @click="ownerStore.dateFilter = 'this_month'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                  ownerStore.dateFilter === 'this_month'
+                    ? 'bg-[#10B981] text-white border-[#10B981]'
+                    : 'bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0] hover:bg-slate-100'
+                ]"
+              >
+                Bulan Ini
+              </button>
+              <button
+                @click="ownerStore.dateFilter = 'custom'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                  ownerStore.dateFilter === 'custom'
+                    ? 'bg-[#10B981] text-white border-[#10B981]'
+                    : 'bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0] hover:bg-slate-100'
+                ]"
+              >
+                Kustom
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom Date Range Inputs -->
+        <div v-if="ownerStore.dateFilter === 'custom'" class="bg-[#ECFDF5] p-4 rounded-xl border border-[#10B981]/30 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-[#00422B] mb-1">Dari Tanggal</label>
+            <input
+              v-model="ownerStore.customStartDate"
+              type="date"
+              class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-[#00422B] mb-1">Sampai Tanggal</label>
+            <input
+              v-model="ownerStore.customEndDate"
+              type="date"
+              class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
+            />
+          </div>
+        </div>
+
+        <!-- Tabel Transaksi -->
+        <div class="bg-white rounded-xl border border-[#E2E8F0] shadow-xs overflow-hidden flex flex-col">
+          <div class="p-4 bg-[#F8FAFC] border-b border-[#E2E8F0] flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider">Tabel Transaksi Cabang</h3>
+              <p class="text-xs text-[#64748B]">Menampilkan {{ ownerStore.filteredTransactions.length }} nota transaksi</p>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[900px]">
+              <thead>
+                <tr class="bg-[#0F172A] text-white text-[11px] font-mono font-bold uppercase tracking-wider h-10">
+                  <th class="p-3">No. Nota</th>
+                  <th class="p-3">Waktu / Tanggal</th>
+                  <th class="p-3">Pelanggan</th>
+                  <th class="p-3">Layanan & Jumlah</th>
+                  <th class="p-3 text-right">Total Tagihan</th>
+                  <th class="p-3 text-center">Metode Bayar</th>
+                  <th class="p-3 text-center">Status</th>
+                  <th class="p-3 text-center">Aksi Cepat</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#E2E8F0] text-xs">
+                <tr
+                  v-for="(tx, idx) in ownerStore.filteredTransactions"
+                  :key="tx.id"
+                  :class="[
+                    'transition-colors hover:bg-slate-50',
+                    tx.is_void ? 'bg-rose-50/50' : (idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]')
+                  ]"
+                >
+                  <!-- No. Nota -->
+                  <td class="p-3 font-mono font-bold">
+                    <span :class="tx.is_void ? 'line-through text-rose-600' : 'text-[#0F172A]'">
+                      {{ tx.receipt_number || tx.id }}
+                    </span>
+                  </td>
+
+                  <!-- Waktu / Tanggal -->
+                  <td class="p-3 text-[#64748B] font-mono text-[11px]">
+                    {{ formatDate(tx.created_at || tx.date) }}
+                  </td>
+
+                  <!-- Pelanggan -->
+                  <td class="p-3">
+                    <div class="flex flex-col">
+                      <span :class="['font-bold', tx.is_void ? 'line-through text-rose-700' : 'text-[#0F172A]']">
+                        {{ tx.customer_name || 'Pelanggan Umum' }}
+                      </span>
+                      <span class="text-[11px] text-[#64748B] font-mono">
+                        {{ tx.customer_phone || '-' }}
+                      </span>
+                    </div>
+                  </td>
+
+                  <!-- Layanan & Jumlah -->
+                  <td class="p-3">
+                    <div class="flex flex-col gap-0.5">
+                      <div v-if="tx.items && tx.items.length > 0">
+                        <span v-for="(it, i) in tx.items" :key="i" class="block font-medium text-[#0F172A]">
+                          • {{ it.name || it.service_name || 'Layanan' }} ({{ it.qty || it.quantity || 1 }} {{ it.unit || 'kg' }})
+                        </span>
+                      </div>
+                      <div v-else class="text-[#64748B] capitalize">
+                        {{ tx.service_type || 'Kiloan' }} ({{ tx.total_kg ? `${tx.total_kg} kg` : (tx.total_coins ? `${tx.total_coins} coin` : '-') }})
+                      </div>
+                    </div>
+                  </td>
+
+                  <!-- Total Tagihan -->
+                  <td class="p-3 text-right font-mono font-extrabold text-[#0F172A]">
+                    <span :class="{ 'line-through text-rose-600': tx.is_void }">
+                      {{ formatCurrency(tx.total_amount) }}
+                    </span>
+                  </td>
+
+                  <!-- Metode Bayar -->
+                  <td class="p-3 text-center">
+                    <span class="uppercase font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                      {{ tx.payment_method || 'CASH' }}
+                    </span>
+                  </td>
+
+                  <!-- Lencana Status Bayar & Produksi -->
+                  <td class="p-3 text-center">
+                    <div class="flex flex-col items-center gap-1">
+                      <!-- Badge VOID -->
+                      <span
+                        v-if="tx.is_void"
+                        class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#FFF1F2] text-[#9F1239] border border-[#F43F5E]/40"
+                        :title="`Dibatalkan: ${tx.void_reason || 'Tanpa alasan'}`"
+                      >
+                        🚫 DIBATALKAN
+                      </span>
+
+                      <!-- Status Bayar -->
+                      <span
+                        v-else-if="tx.payment_status === 'paid' || tx.payment_status === 'lunas'"
+                        class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-[#ECFDF5] text-[#00422B] border border-[#10B981]/30"
+                      >
+                        LUNAS
+                      </span>
+                      <span
+                        v-else
+                        class="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-50 text-amber-800 border border-amber-300"
+                      >
+                        BELUM LUNAS
+                      </span>
+
+                      <!-- Status Produksi -->
+                      <span
+                        v-if="!tx.is_void"
+                        :class="[
+                          'px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-tight',
+                          tx.production_status === 'selesai'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : (tx.production_status === 'siap_diambil' || tx.production_status === 'siap')
+                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                        ]"
+                      >
+                        {{ tx.production_status || 'Diproses' }}
+                      </span>
+                    </div>
+                  </td>
+
+                  <!-- Kolom Aksi (Action Buttons) -->
+                  <td class="p-3 text-center">
+                    <div v-if="!tx.is_void" class="flex items-center justify-center gap-1.5 flex-wrap">
+                      <!-- Ubah Status Produksi -->
+                      <button
+                        @click="openStatusModal(tx)"
+                        class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-[#0F172A] font-bold text-[11px] rounded transition-all border border-slate-300 active:translate-y-[1px]"
+                        title="Ubah Status Produksi"
+                      >
+                        ⚙️ Status
+                      </button>
+
+                      <!-- Tandai Lunas -->
+                      <button
+                        v-if="tx.payment_status !== 'paid' && tx.payment_status !== 'lunas'"
+                        @click="handleMarkAsPaid(tx)"
+                        class="px-2 py-1 bg-[#10B981] hover:bg-[#059669] text-white font-bold text-[11px] rounded transition-all border border-[#10B981] active:translate-y-[1px]"
+                        title="Tandai Nota Lunas"
+                      >
+                        💵 Lunas
+                      </button>
+
+                      <!-- Kirim Struk WA -->
+                      <button
+                        @click="handleSendWA(tx)"
+                        class="px-2 py-1 bg-[#25D366] hover:bg-[#128C7E] text-white font-bold text-[11px] rounded transition-all active:translate-y-[1px]"
+                        title="Kirim Struk via WhatsApp"
+                      >
+                        💬 WA
+                      </button>
+
+                      <!-- Batalkan Nota (Void) -->
+                      <button
+                        @click="openVoidModal(tx)"
+                        class="px-2 py-1 bg-[#FFF1F2] hover:bg-[#FFE4E6] text-[#9F1239] font-bold text-[11px] rounded transition-all border border-[#F43F5E]/30 active:translate-y-[1px]"
+                        title="Batalkan Nota (Void)"
+                      >
+                        🚫 Void
+                      </button>
+                    </div>
+
+                    <!-- Void Reason detail if voided -->
+                    <div v-else class="text-[10px] text-rose-700 italic max-w-[150px] mx-auto text-center">
+                      Alasan: {{ tx.void_reason || '-' }}
+                    </div>
+                  </td>
+                </tr>
+
+                <tr v-if="ownerStore.filteredTransactions.length === 0">
+                  <td colspan="8" class="p-8 text-center text-xs text-[#64748B]">
+                    Tidak ada transaksi ditemukan untuk filter ini.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <!-- ================= TAB 1: RINGKASAN FINANSIAL & LABA BERSIH ================= -->
       <div v-if="activeTab === 'financial'" class="flex flex-col gap-6">
         <!-- Filter Tanggal -->
         <div class="bg-white p-4 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <h2 class="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider">Periode Laporan</h2>
-            <p class="text-xs text-[#64748B]">Pilih rentang tanggal untuk analisa performa toko</p>
+            <h2 class="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider">Periode Laporan Finansial</h2>
+            <p class="text-xs text-[#64748B]">Pilih rentang tanggal untuk analisa performa toko (Dihitung tanpa transaksi Void)</p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
@@ -331,6 +756,17 @@ function handleResetPasswordSubmit() {
               ]"
             >
               Hari Ini
+            </button>
+            <button
+              @click="ownerStore.dateFilter = '7_days'"
+              :class="[
+                'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                ownerStore.dateFilter === '7_days'
+                  ? 'bg-[#10B981] text-white border-[#10B981]'
+                  : 'bg-[#F8FAFC] text-[#0F172A] border-[#E2E8F0] hover:bg-slate-100'
+              ]"
+            >
+              7 Hari
             </button>
             <button
               @click="ownerStore.dateFilter = 'this_month'"
@@ -378,137 +814,104 @@ function handleResetPasswordSubmit() {
         </div>
 
         <!-- Kartu Metrik Finansial -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <!-- Total Omzet -->
-          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-2">
-            <div class="flex items-center justify-between text-[#64748B]">
-              <span class="text-xs font-bold uppercase tracking-wider">Total Omzet</span>
-              <span class="text-xl">💰</span>
+          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col justify-between border-l-4 border-l-[#10B981]">
+            <div>
+              <span class="text-xs font-extrabold uppercase text-[#64748B] tracking-wider">Total Omzet Kotor</span>
+              <h3 class="text-2xl font-black font-mono text-[#0F172A] mt-1">
+                {{ formatCurrency(ownerStore.totalOmzet) }}
+              </h3>
             </div>
-            <span class="text-2xl font-black font-mono tabular-nums text-[#10B981]">
-              {{ formatCurrency(ownerStore.totalOmzet) }}
-            </span>
-            <span class="text-[10px] text-[#64748B]">Total penerimaan kotor</span>
+            <p class="text-[11px] text-[#64748B] mt-3">Total pemasukan dari transaksi yang sah</p>
           </div>
 
           <!-- Total Pengeluaran -->
-          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-2">
-            <div class="flex items-center justify-between text-[#64748B]">
-              <span class="text-xs font-bold uppercase tracking-wider">Total Pengeluaran</span>
-              <span class="text-xl">💸</span>
+          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col justify-between border-l-4 border-l-[#F43F5E]">
+            <div>
+              <span class="text-xs font-extrabold uppercase text-[#64748B] tracking-wider">Total Beban Operasional</span>
+              <h3 class="text-2xl font-black font-mono text-[#9F1239] mt-1">
+                {{ formatCurrency(ownerStore.totalPengeluaran) }}
+              </h3>
             </div>
-            <span class="text-2xl font-black font-mono tabular-nums text-[#F43F5E]">
-              {{ formatCurrency(ownerStore.totalPengeluaran) }}
-            </span>
-            <span class="text-[10px] text-[#64748B]">Beban operasional toko</span>
+            <p class="text-[11px] text-[#64748B] mt-3">Catatan pengeluaran operasional toko</p>
           </div>
 
           <!-- Laba Bersih -->
-          <div class="bg-[#0F172A] text-white p-5 rounded-xl border border-slate-800 shadow-md flex flex-col gap-2">
-            <div class="flex items-center justify-between text-slate-400">
-              <span class="text-xs font-bold uppercase tracking-wider">Laba Bersih</span>
-              <span class="text-xl">📈</span>
+          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col justify-between border-l-4 border-l-blue-500">
+            <div>
+              <span class="text-xs font-extrabold uppercase text-[#64748B] tracking-wider">Estimasi Laba Bersih</span>
+              <h3 class="text-2xl font-black font-mono text-[#0F172A] mt-1">
+                {{ formatCurrency(ownerStore.labaBersih) }}
+              </h3>
             </div>
-            <span
-              :class="[
-                'text-2xl font-black font-mono tabular-nums',
-                ownerStore.labaBersih >= 0 ? 'text-[#10B981]' : 'text-[#F43F5E]'
-              ]"
-            >
-              {{ formatCurrency(ownerStore.labaBersih) }}
-            </span>
-            <span class="text-[10px] text-slate-400">Omzet - Pengeluaran</span>
+            <p class="text-[11px] text-[#64748B] mt-3">Omzet Bersih = Total Omzet - Pengeluaran</p>
           </div>
         </div>
 
-        <!-- Metrik Operasional & Metode Bayar -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <!-- Metrik Operasional -->
-          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-[#64748B] border-b border-[#E2E8F0] pb-2">
-              Volum Operasional Produksi
+        <!-- Ringkasan Operasional & Metode Bayar -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-3">
+            <h3 class="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-[#E2E8F0] pb-2">
+              📊 Metrik Volume Operasional
             </h3>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div class="bg-[#F8FAFC] p-4 rounded-lg border border-[#E2E8F0]">
-                <span class="text-xs text-[#64748B] block font-bold">Total Berat Kg</span>
-                <span class="text-2xl font-black text-[#0F172A] font-mono tabular-nums">
-                  {{ ownerStore.totalKgProcessed }} <span class="text-xs font-sans text-[#64748B]">Kg</span>
-                </span>
+            <div class="grid grid-cols-2 gap-3 pt-1">
+              <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
+                <span class="text-xs text-[#64748B] font-bold block">Total Cuci Kiloan</span>
+                <span class="text-xl font-black text-[#0F172A] font-mono">{{ ownerStore.totalKgProcessed }} kg</span>
               </div>
 
-              <div class="bg-[#F8FAFC] p-4 rounded-lg border border-[#E2E8F0]">
-                <span class="text-xs text-[#64748B] block font-bold">Total Koin Terpakai</span>
-                <span class="text-2xl font-black text-[#0F172A] font-mono tabular-nums">
-                  {{ ownerStore.totalCoinsUsed }} <span class="text-xs font-sans text-[#64748B]">Koin</span>
-                </span>
+              <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0]">
+                <span class="text-xs text-[#64748B] font-bold block">Total Koin Terpakai</span>
+                <span class="text-xl font-black text-[#0F172A] font-mono">{{ ownerStore.totalCoinsUsed }} paket</span>
               </div>
             </div>
           </div>
 
-          <!-- Rincian Metode Pembayaran -->
-          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-[#64748B] border-b border-[#E2E8F0] pb-2">
-              Breakdown Metode Pembayaran
+          <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-3">
+            <h3 class="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-[#E2E8F0] pb-2">
+              💳 Breakdown Metode Pembayaran
             </h3>
-
-            <div class="flex flex-col gap-3">
-              <!-- Tunai -->
-              <div class="flex items-center justify-between p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <div class="flex items-center gap-2">
-                  <span class="text-xl">💵</span>
-                  <div>
-                    <span class="text-xs font-bold text-[#0F172A] block">Tunai (Cash)</span>
-                    <span class="text-[10px] text-[#64748B] font-mono">{{ ownerStore.paymentMethodBreakdown.cashCount }} transaksi</span>
-                  </div>
-                </div>
-                <span class="text-sm font-extrabold text-[#0F172A] font-mono tabular-nums">
-                  {{ formatCurrency(ownerStore.paymentMethodBreakdown.cash) }}
-                </span>
+            <div class="grid grid-cols-2 gap-3 pt-1">
+              <div class="bg-[#ECFDF5] p-3 rounded-lg border border-[#10B981]/30">
+                <span class="text-xs text-[#00422B] font-bold block">Cash / Tunai</span>
+                <span class="text-lg font-black text-[#0F172A] font-mono">{{ formatCurrency(ownerStore.paymentMethodBreakdown.cash) }}</span>
+                <span class="text-[11px] text-[#64748B] block mt-0.5">({{ ownerStore.paymentMethodBreakdown.cashCount }} transaksi)</span>
               </div>
 
-              <!-- QRIS -->
-              <div class="flex items-center justify-between p-3 bg-[#ECFDF5] rounded-lg border border-[#10B981]/30">
-                <div class="flex items-center gap-2">
-                  <span class="text-xl">📱</span>
-                  <div>
-                    <span class="text-xs font-bold text-[#00422B] block">QRIS Non-Tunai</span>
-                    <span class="text-[10px] text-[#00422B]/70 font-mono">{{ ownerStore.paymentMethodBreakdown.qrisCount }} transaksi</span>
-                  </div>
-                </div>
-                <span class="text-sm font-extrabold text-[#10B981] font-mono tabular-nums">
-                  {{ formatCurrency(ownerStore.paymentMethodBreakdown.qris) }}
-                </span>
+              <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <span class="text-xs text-blue-900 font-bold block">QRIS / Non-Tunai</span>
+                <span class="text-lg font-black text-[#0F172A] font-mono">{{ formatCurrency(ownerStore.paymentMethodBreakdown.qris) }}</span>
+                <span class="text-[11px] text-[#64748B] block mt-0.5">({{ ownerStore.paymentMethodBreakdown.qrisCount }} transaksi)</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- ================= TAB 2: PENCATATAN BIAYA OPERASIONAL ================= -->
+      <!-- ================= TAB 2: CATATAN PENGELUARAN ================= -->
       <div v-if="activeTab === 'expenses'" class="flex flex-col gap-6">
-        <!-- Form Input Pengeluaran -->
         <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="border-b border-[#E2E8F0] pb-3">
-            <h2 class="text-base font-extrabold text-[#0F172A]">Catat Pengeluaran Operasional</h2>
-            <p class="text-xs text-[#64748B]">Masukkan rincian pengeluaran rutin toko untuk perhitungan laba bersih</p>
-          </div>
-
-          <div v-if="expenseSuccessMsg" class="bg-[#ECFDF5] text-[#00422B] p-3 rounded-lg text-xs font-bold border border-[#10B981]">
-            {{ expenseSuccessMsg }}
-          </div>
-
-          <form @submit.prevent="handleAddExpense" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
             <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Kategori Expense</label>
+              <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider">Pencatatan Beban Operasional</h2>
+              <p class="text-xs text-[#64748B]">Catat pengeluaran toko seperti listrik, air, deterjen, dan gaji staf</p>
+            </div>
+          </div>
+
+          <!-- Form Tambah Pengeluaran -->
+          <form @submit.prevent="handleAddExpense" class="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0]">
+            <div>
+              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Kategori</label>
               <select
                 v-model="newExpense.category"
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
               >
-                <option value="Listrik">⚡ Listrik</option>
-                <option value="Air">💧 Air / PDAM</option>
-                <option value="Gaji">👨‍💼 Gaji Karyawan</option>
-                <option value="Operasional">🧼 Operasional (Deterjen, Plastik, dll)</option>
+                <option value="Listrik">⚡ Listrik PLN</option>
+                <option value="Air">💧 Air PDAM</option>
+                <option value="Operasional">🧼 Operasional & Deterjen</option>
+                <option value="Gaji">👥 Gaji Staf</option>
+                <option value="Lainnya">📦 Lainnya</option>
               </select>
             </div>
 
@@ -517,52 +920,38 @@ function handleResetPasswordSubmit() {
               <input
                 v-model.number="newExpense.amount"
                 type="number"
-                placeholder="Contoh: 150000"
+                placeholder="0"
                 required
-                min="1"
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold font-mono text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold font-mono text-[#0F172A]"
               />
             </div>
 
             <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Tanggal</label>
-              <input
-                v-model="newExpense.date"
-                type="date"
-                required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
-              />
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Catatan Keterangan</label>
+              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Catatan</label>
               <input
                 v-model="newExpense.notes"
                 type="text"
-                placeholder="Contoh: Pembelian token PLN 100rb"
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                placeholder="Detail pengeluaran..."
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
               />
             </div>
 
-            <div class="sm:col-span-2 flex justify-end">
+            <div class="flex items-end">
               <button
                 type="submit"
                 :disabled="ownerStore.isLoading"
-                class="px-6 py-3 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-sm rounded-lg border-b-2 border-[#059669] shadow-md transition-all active:translate-y-[1px] min-h-[48px]"
+                class="w-full py-2 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-xs transition-all active:translate-y-[1px] min-h-[38px]"
               >
-                + Simpan Pengeluaran
+                + Tambah Pengeluaran
               </button>
             </div>
           </form>
-        </div>
 
-        <!-- Tabel Riwayat Pengeluaran -->
-        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-            <h3 class="text-base font-extrabold text-[#0F172A]">Riwayat Pengeluaran</h3>
-            <span class="text-xs text-[#64748B] font-mono">{{ ownerStore.expenses.length }} Record</span>
+          <div v-if="expenseSuccessMsg" class="p-3 bg-[#ECFDF5] text-[#00422B] text-xs font-bold rounded-lg border border-[#10B981]/30">
+            {{ expenseSuccessMsg }}
           </div>
 
+          <!-- Tabel Pengeluaran -->
           <div class="overflow-x-auto rounded-lg border border-[#E2E8F0]">
             <table class="w-full text-left border-collapse min-w-[500px]">
               <thead>
@@ -570,39 +959,35 @@ function handleResetPasswordSubmit() {
                   <th class="p-3">Tanggal</th>
                   <th class="p-3">Kategori</th>
                   <th class="p-3">Catatan</th>
-                  <th class="p-3 text-right">Nominal</th>
+                  <th class="p-3 text-right">Jumlah</th>
                   <th class="p-3 text-center">Aksi</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-[#E2E8F0] text-xs">
                 <tr
-                  v-for="(exp, idx) in ownerStore.expenses"
+                  v-for="(exp, idx) in ownerStore.filteredExpenses"
                   :key="exp.id"
-                  :class="['transition-colors hover:bg-[#F1F5F9]', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
+                  :class="['transition-colors hover:bg-slate-50', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
                 >
-                  <td class="p-3 font-mono text-[#0F172A] whitespace-nowrap">{{ exp.date }}</td>
-                  <td class="p-3">
-                    <span class="px-2 py-0.5 bg-slate-100 font-bold rounded text-[11px] text-[#0F172A]">
-                      {{ exp.category }}
-                    </span>
-                  </td>
-                  <td class="p-3 text-[#64748B] max-w-[200px] truncate">{{ exp.notes || '-' }}</td>
-                  <td class="p-3 text-right font-bold font-mono text-[#F43F5E] tabular-nums whitespace-nowrap">
+                  <td class="p-3 font-mono text-[#64748B]">{{ exp.date || exp.created_at?.slice(0, 10) }}</td>
+                  <td class="p-3 font-bold text-[#0F172A]">{{ exp.category }}</td>
+                  <td class="p-3 text-[#64748B]">{{ exp.notes || '-' }}</td>
+                  <td class="p-3 text-right font-mono font-extrabold text-[#9F1239]">
                     {{ formatCurrency(exp.amount) }}
                   </td>
                   <td class="p-3 text-center">
                     <button
                       @click="handleDeleteExpense(exp.id)"
-                      class="text-xs text-[#F43F5E] hover:underline font-bold"
+                      class="px-2 py-1 bg-[#FFF1F2] hover:bg-[#FFE4E6] text-[#9F1239] font-bold text-[10px] rounded border border-[#F43F5E]/30"
                     >
                       Hapus
                     </button>
                   </td>
                 </tr>
 
-                <tr v-if="ownerStore.expenses.length === 0">
+                <tr v-if="ownerStore.filteredExpenses.length === 0">
                   <td colspan="5" class="p-6 text-center text-xs text-[#64748B]">
-                    Belum ada catatan pengeluaran.
+                    Belum ada data pengeluaran pada periode ini.
                   </td>
                 </tr>
               </tbody>
@@ -611,78 +996,77 @@ function handleResetPasswordSubmit() {
         </div>
       </div>
 
-      <!-- ================= TAB 3: MASTER LAYANAN & HARGA REAL-TIME ================= -->
+      <!-- ================= TAB 3: TARIF LAYANAN ================= -->
       <div v-if="activeTab === 'services'" class="flex flex-col gap-6">
         <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3 flex-wrap gap-2">
+          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
             <div>
-              <h2 class="text-base font-extrabold text-[#0F172A]">Master Layanan & Harga Real-Time</h2>
-              <p class="text-xs text-[#64748B]">
-                Perubahan harga berlaku seketika di kasir.
-              </p>
+              <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider">Master Layanan & Tarif</h2>
+              <p class="text-xs text-[#64748B]">Atur jenis layanan, harga per kg/paket/pcs, dan status aktif layanan</p>
             </div>
-
             <button
               @click="showServiceModal = true"
-              class="px-4 py-2.5 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-sm transition-all flex items-center gap-1 active:translate-y-[1px] min-h-[44px]"
+              class="px-4 py-2 bg-[#10B981] hover:bg-[#059669] text-white text-xs font-extrabold rounded-lg border-b-2 border-[#059669] transition-all active:translate-y-[1px]"
             >
-              <span>+ Tambah Layanan</span>
+              + Tambah Layanan
             </button>
           </div>
 
-          <!-- Tabel Master Layanan -->
+          <!-- Tabel Layanan -->
           <div class="overflow-x-auto rounded-lg border border-[#E2E8F0]">
-            <table class="w-full text-left border-collapse min-w-[550px]">
+            <table class="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr class="bg-[#0F172A] text-white text-[11px] font-mono font-bold uppercase tracking-wider h-10">
                   <th class="p-3">Nama Layanan</th>
+                  <th class="p-3">Kategori</th>
                   <th class="p-3">Satuan</th>
-                  <th class="p-3">Harga Saat Ini</th>
-                  <th class="p-3 text-center">Status Aktif</th>
-                  <th class="p-3 text-right">Edit Harga</th>
+                  <th class="p-3 text-right">Harga (Rp)</th>
+                  <th class="p-3 text-center">Status</th>
+                  <th class="p-3 text-center">Aksi</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-[#E2E8F0] text-xs">
                 <tr
                   v-for="(srv, idx) in ownerStore.services"
                   :key="srv.id"
-                  :class="['transition-colors hover:bg-[#F1F5F9]', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
+                  :class="['transition-colors hover:bg-slate-50', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
                 >
-                  <td class="p-3">
-                    <span class="font-bold text-[#0F172A]">{{ srv.name }}</span>
-                  </td>
-
+                  <td class="p-3 font-extrabold text-[#0F172A]">{{ srv.name }}</td>
+                  <td class="p-3 uppercase font-mono text-[11px] text-[#64748B]">{{ srv.category }}</td>
                   <td class="p-3 font-mono text-[#64748B]">{{ srv.unit }}</td>
-
-                  <td class="p-3 font-bold font-mono text-[#10B981] tabular-nums">
-                    {{ formatCurrency(srv.price) }}
+                  <td class="p-3 text-right">
+                    <input
+                      :value="srv.price"
+                      @change="e => handleUpdateServicePrice(srv, e.target.value)"
+                      type="number"
+                      step="500"
+                      class="w-28 px-2 py-1 bg-white border border-[#E2E8F0] rounded text-right font-mono font-extrabold text-[#0F172A]"
+                    />
                   </td>
-
+                  <td class="p-3 text-center">
+                    <span
+                      :class="[
+                        'px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase',
+                        srv.is_active
+                          ? 'bg-[#ECFDF5] text-[#00422B] border border-[#10B981]/30'
+                          : 'bg-slate-100 text-slate-500 border border-slate-200'
+                      ]"
+                    >
+                      {{ srv.is_active ? 'Aktif' : 'Nonaktif' }}
+                    </span>
+                  </td>
                   <td class="p-3 text-center">
                     <button
                       @click="handleToggleService(srv)"
                       :class="[
-                        'px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all',
+                        'px-2.5 py-1 rounded text-[10px] font-bold border transition-all active:translate-y-[1px]',
                         srv.is_active
-                          ? 'bg-[#ECFDF5] text-[#00422B] border border-[#10B981]/30'
-                          : 'bg-[#FFF1F2] text-[#9F1239] border border-[#F43F5E]/30'
+                          ? 'bg-[#FFF1F2] text-[#9F1239] border-[#F43F5E]/30 hover:bg-[#FFE4E6]'
+                          : 'bg-[#ECFDF5] text-[#00422B] border-[#10B981]/30 hover:bg-[#D1FAE5]'
                       ]"
                     >
-                      {{ srv.is_active ? 'Aktif' : 'Non-Aktif' }}
+                      {{ srv.is_active ? 'Nonaktifkan' : 'Aktifkan' }}
                     </button>
-                  </td>
-
-                  <td class="p-3 text-right">
-                    <div class="flex items-center justify-end gap-1">
-                      <span class="text-xs text-[#64748B] font-mono">Rp</span>
-                      <input
-                        :value="srv.price"
-                        @change="e => handleUpdateServicePrice(srv, e.target.value)"
-                        type="number"
-                        step="500"
-                        class="w-28 px-2 py-1 bg-white border border-[#CBD5E1] rounded text-xs font-mono font-bold text-right text-[#0F172A] focus:outline-none focus:border-[#10B981]"
-                      />
-                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -691,30 +1075,23 @@ function handleResetPasswordSubmit() {
         </div>
       </div>
 
-      <!-- ================= TAB 4: PROMO & PENGATURAN LOYALITAS ================= -->
+      <!-- ================= TAB 4: PROMO & POIN LOYALITAS ================= -->
       <div v-if="activeTab === 'promotions'" class="flex flex-col gap-6">
-        <!-- Form Aturan Poin Loyalitas -->
+        <!-- Pengaturan Poin Loyalitas -->
         <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="border-b border-[#E2E8F0] pb-3">
-            <h2 class="text-base font-extrabold text-[#0F172A]">Pengaturan Aturan Poin Loyalitas</h2>
-            <p class="text-xs text-[#64748B]">Tentukan rasio transaksi per perolehan poin dan nilai tukar voucher</p>
-          </div>
+          <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-[#E2E8F0] pb-2">
+            ⭐ Pengaturan Aturan Poin Loyalitas
+          </h2>
 
-          <div v-if="loyaltySuccessMsg" class="bg-[#ECFDF5] text-[#00422B] p-3 rounded-lg text-xs font-bold border border-[#10B981]">
-            {{ loyaltySuccessMsg }}
-          </div>
-
-          <form @submit.prevent="handleSaveLoyalty" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <form @submit.prevent="handleSaveLoyalty" class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0]">
             <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Nominal per 1 Poin (Rp)</label>
+              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Nominal Transaksi / 1 Poin</label>
               <input
                 v-model.number="loyaltyForm.spend_per_point"
                 type="number"
                 step="1000"
-                required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold font-mono text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold font-mono text-[#0F172A]"
               />
-              <span class="text-[10px] text-[#64748B] mt-1 block">Contoh: 10000 (Pelanggan dapat 1 poin tiap kelipatan Rp 10.000)</span>
             </div>
 
             <div>
@@ -723,44 +1100,41 @@ function handleResetPasswordSubmit() {
                 v-model.number="loyaltyForm.point_redemption_value"
                 type="number"
                 step="100"
-                required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold font-mono text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold font-mono text-[#0F172A]"
               />
-              <span class="text-[10px] text-[#64748B] mt-1 block">Contoh: 1000 (1 poin setara potongan Rp 1.000 saat ditukar)</span>
             </div>
 
-            <div class="sm:col-span-2 flex justify-end">
+            <div class="flex items-end">
               <button
                 type="submit"
                 :disabled="ownerStore.isLoading"
-                class="px-6 py-2.5 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-sm transition-all active:translate-y-[1px] min-h-[44px]"
+                class="w-full py-2 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-xs transition-all active:translate-y-[1px] min-h-[38px]"
               >
                 Simpan Aturan Poin
               </button>
             </div>
           </form>
+
+          <div v-if="loyaltySuccessMsg" class="p-3 bg-[#ECFDF5] text-[#00422B] text-xs font-bold rounded-lg border border-[#10B981]/30">
+            {{ loyaltySuccessMsg }}
+          </div>
         </div>
 
-        <!-- Form Pembuatan Voucher Promo -->
+        <!-- Manajemen Voucher Promo -->
         <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="border-b border-[#E2E8F0] pb-3">
-            <h2 class="text-base font-extrabold text-[#0F172A]">Buat Voucher Promo Baru</h2>
-            <p class="text-xs text-[#64748B]">Buat kode voucher diskon berperiode untuk meningkatkan penjualan</p>
-          </div>
+          <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider border-b border-[#E2E8F0] pb-2">
+            🎁 Buat Voucher Promo
+          </h2>
 
-          <div v-if="promoSuccessMsg" class="bg-[#ECFDF5] text-[#00422B] p-3 rounded-lg text-xs font-bold border border-[#10B981]">
-            {{ promoSuccessMsg }}
-          </div>
-
-          <form @submit.prevent="handleAddPromo" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <form @submit.prevent="handleAddPromo" class="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0]">
             <div>
               <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Kode Voucher</label>
               <input
                 v-model="newPromo.code"
                 type="text"
-                placeholder="Contoh: HEMAT10"
+                placeholder="BERSIH10"
                 required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold uppercase font-mono text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold uppercase text-[#0F172A]"
               />
             </div>
 
@@ -768,7 +1142,7 @@ function handleResetPasswordSubmit() {
               <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Tipe Diskon</label>
               <select
                 v-model="newPromo.discount_type"
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
               >
                 <option value="percentage">Persentase (%)</option>
                 <option value="fixed">Nominal Tetap (Rp)</option>
@@ -780,96 +1154,78 @@ function handleResetPasswordSubmit() {
               <input
                 v-model.number="newPromo.discount_value"
                 type="number"
-                placeholder="Misal: 10 atau 10000"
+                placeholder="10"
                 required
-                min="1"
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold font-mono text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold font-mono text-[#0F172A]"
               />
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Tanggal Mulai</label>
-                <input
-                  v-model="newPromo.start_date"
-                  type="date"
-                  required
-                  class="w-full px-2 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
-                />
-              </div>
-
-              <div>
-                <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Tanggal Selesai</label>
-                <input
-                  v-model="newPromo.end_date"
-                  type="date"
-                  required
-                  class="w-full px-2 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
-                />
-              </div>
+            <div>
+              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Berlaku s/d</label>
+              <input
+                v-model="newPromo.end_date"
+                type="date"
+                required
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
+              />
             </div>
 
-            <div class="sm:col-span-2 flex justify-end">
+            <div class="flex items-end">
               <button
                 type="submit"
                 :disabled="ownerStore.isLoading"
-                class="px-6 py-3 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-sm rounded-lg border-b-2 border-[#059669] shadow-md transition-all active:translate-y-[1px] min-h-[48px]"
+                class="w-full py-2 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-xs transition-all active:translate-y-[1px] min-h-[38px]"
               >
-                + Buat Voucher Promo
+                + Buat Voucher
               </button>
             </div>
           </form>
-        </div>
 
-        <!-- Tabel Daftar Promo -->
-        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-            <h3 class="text-base font-extrabold text-[#0F172A]">Daftar Voucher Promo</h3>
-            <span class="text-xs text-[#64748B] font-mono">{{ ownerStore.promotions.length }} Promo</span>
+          <div v-if="promoSuccessMsg" class="p-3 bg-[#ECFDF5] text-[#00422B] text-xs font-bold rounded-lg border border-[#10B981]/30">
+            {{ promoSuccessMsg }}
           </div>
 
+          <!-- Tabel Voucher -->
           <div class="overflow-x-auto rounded-lg border border-[#E2E8F0]">
             <table class="w-full text-left border-collapse min-w-[500px]">
               <thead>
                 <tr class="bg-[#0F172A] text-white text-[11px] font-mono font-bold uppercase tracking-wider h-10">
-                  <th class="p-3">Kode Voucher</th>
+                  <th class="p-3">Kode Promo</th>
                   <th class="p-3">Nilai Diskon</th>
-                  <th class="p-3">Periode Berlaku</th>
+                  <th class="p-3">Berlaku Sampai</th>
                   <th class="p-3 text-center">Status</th>
+                  <th class="p-3 text-center">Aksi</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-[#E2E8F0] text-xs">
                 <tr
-                  v-for="(promo, idx) in ownerStore.promotions"
-                  :key="promo.id"
-                  :class="['transition-colors hover:bg-[#F1F5F9]', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
+                  v-for="(p, idx) in ownerStore.promotions"
+                  :key="p.id"
+                  :class="['transition-colors hover:bg-slate-50', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
                 >
-                  <td class="p-3 font-mono font-bold text-[#00422B]">
-                    <span class="bg-[#ECFDF5] px-2 py-1 rounded border border-[#10B981]/30">
-                      🎟️ {{ promo.code }}
-                    </span>
+                  <td class="p-3 font-mono font-black text-[#0F172A]">{{ p.code }}</td>
+                  <td class="p-3 font-bold text-[#0F172A]">
+                    {{ p.discount_type === 'percentage' ? `${p.discount_value}%` : formatCurrency(p.discount_value) }}
                   </td>
-
-                  <td class="p-3 font-bold font-mono text-[#0F172A]">
-                    <span v-if="promo.discount_type === 'percentage'">{{ promo.discount_value }}%</span>
-                    <span v-else>{{ formatCurrency(promo.discount_value) }}</span>
-                  </td>
-
-                  <td class="p-3 text-[#64748B] font-mono text-[11px]">
-                    {{ promo.start_date }} s/d {{ promo.end_date }}
-                  </td>
-
+                  <td class="p-3 font-mono text-[#64748B]">{{ p.end_date }}</td>
                   <td class="p-3 text-center">
-                    <button
-                      @click="ownerStore.togglePromotionActive(promo.id)"
+                    <span
                       :class="[
-                        'px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all',
-                        promo.is_active
+                        'px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase',
+                        p.is_active
                           ? 'bg-[#ECFDF5] text-[#00422B] border border-[#10B981]/30'
-                          : 'bg-[#FFF1F2] text-[#9F1239] border border-[#F43F5E]/30'
+                          : 'bg-slate-100 text-slate-500 border border-slate-200'
                       ]"
                     >
-                      {{ promo.is_active ? 'Aktif' : 'Non-Aktif' }}
+                      {{ p.is_active ? 'Aktif' : 'Nonaktif' }}
+                    </span>
+                  </td>
+                  <td class="p-3 text-center">
+                    <button
+                      @click="ownerStore.togglePromotionActive(p.id)"
+                      class="px-2.5 py-1 rounded text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-[#0F172A] border border-slate-300 transition-all active:translate-y-[1px]"
+                    >
+                      Toggle Status
                     </button>
                   </td>
                 </tr>
@@ -881,43 +1237,35 @@ function handleResetPasswordSubmit() {
 
       <!-- ================= TAB 5: MANAJEMEN STAF ================= -->
       <div v-if="activeTab === 'staff'" class="flex flex-col gap-6">
-        <!-- Toast Notifikasi Global Staf -->
-        <div v-if="resetSuccessMsg" class="bg-[#ECFDF5] text-[#00422B] p-3.5 rounded-xl text-xs font-bold border border-[#10B981] shadow-xs flex items-center gap-2">
-          <span>✅</span>
-          <span>{{ resetSuccessMsg }}</span>
-        </div>
-
-        <!-- Form Tambah Staf Baru -->
-        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="border-b border-[#E2E8F0] pb-3">
-            <h2 class="text-base font-extrabold text-[#0F172A]">Tambah Staf Kasir Baru</h2>
-            <p class="text-xs text-[#64748B]">Buat akun kasir baru untuk mengakses portal kasir toko Anda</p>
+        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-5">
+          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+            <div>
+              <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider">Manajemen Staf Kasir</h2>
+              <p class="text-xs text-[#64748B]">Kelola hak akses, tambah staf kasir baru, dan reset password staf</p>
+            </div>
           </div>
 
-          <div v-if="staffSuccessMsg" class="bg-[#ECFDF5] text-[#00422B] p-3 rounded-lg text-xs font-bold border border-[#10B981]">
-            {{ staffSuccessMsg }}
-          </div>
-
-          <form @submit.prevent="handleAddStaff" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <!-- Form Tambah Staf -->
+          <form @submit.prevent="handleAddStaff" class="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0]">
             <div>
               <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Nama Lengkap</label>
               <input
                 v-model="newStaff.full_name"
                 type="text"
-                placeholder="Contoh: Andi Wijaya"
+                placeholder="Contoh: Siti Rahma"
                 required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
               />
             </div>
 
             <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Username</label>
+              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Username Staf</label>
               <input
                 v-model="newStaff.username"
                 type="text"
-                placeholder="Contoh: andi_kasir"
+                placeholder="siti_kasir"
                 required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold font-mono text-[#0F172A]"
               />
             </div>
 
@@ -926,33 +1274,27 @@ function handleResetPasswordSubmit() {
               <input
                 v-model="newStaff.password"
                 type="password"
-                placeholder="••••••••"
+                placeholder="******"
                 required
-                class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-sm font-bold text-[#0F172A] focus:outline-none focus:border-[#10B981]"
+                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
               />
             </div>
 
-            <div class="sm:col-span-3 flex justify-end">
+            <div class="flex items-end">
               <button
                 type="submit"
-                class="px-6 py-3 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-sm rounded-lg border-b-2 border-[#059669] shadow-md transition-all active:translate-y-[1px] min-h-[48px]"
+                class="w-full py-2 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-xs transition-all active:translate-y-[1px] min-h-[38px]"
               >
-                + Tambah Staf Kasir
+                + Tambah Staf Baru
               </button>
             </div>
           </form>
-        </div>
 
-        <!-- Tabel Daftar Staf -->
-        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
-          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-            <div>
-              <h3 class="text-base font-extrabold text-[#0F172A]">Daftar Staf Kasir</h3>
-              <p class="text-xs text-[#64748B]">Kelola hak akses dan status keaktifan akun staf</p>
-            </div>
-            <span class="text-xs text-[#64748B] font-mono font-bold">{{ staffList.length }} Staf</span>
+          <div v-if="staffSuccessMsg" class="p-3 bg-[#ECFDF5] text-[#00422B] text-xs font-bold rounded-lg border border-[#10B981]/30">
+            {{ staffSuccessMsg }}
           </div>
 
+          <!-- Tabel Staf Kasir -->
           <div class="overflow-x-auto rounded-lg border border-[#E2E8F0]">
             <table class="w-full text-left border-collapse min-w-[500px]">
               <thead>
@@ -998,7 +1340,7 @@ function handleResetPasswordSubmit() {
                         @click="openResetPasswordModal(staff)"
                         class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-[#0F172A] font-bold text-xs rounded-lg transition-all border border-slate-200 active:translate-y-[1px]"
                       >
-                        🔑 Edit/Reset Password
+                        🔑 Reset Password
                       </button>
 
                       <button
@@ -1013,12 +1355,6 @@ function handleResetPasswordSubmit() {
                         {{ staff.is_active ? 'Nonaktifkan' : 'Aktifkan' }}
                       </button>
                     </div>
-                  </td>
-                </tr>
-
-                <tr v-if="staffList.length === 0">
-                  <td colspan="4" class="p-6 text-center text-xs text-[#64748B]">
-                    Belum ada data staf kasir.
                   </td>
                 </tr>
               </tbody>
@@ -1108,6 +1444,100 @@ function handleResetPasswordSubmit() {
             + Simpan Layanan Baru
           </button>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal Status Produksi -->
+    <div
+      v-if="showStatusModal"
+      class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      @click.self="showStatusModal = false"
+    >
+      <div class="bg-white w-full max-w-sm rounded-xl p-6 shadow-2xl flex flex-col gap-4 border border-[#E2E8F0]">
+        <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+          <h3 class="text-base font-black text-[#0F172A]">Ubah Status Produksi</h3>
+          <button @click="showStatusModal = false" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+        </div>
+
+        <div v-if="selectedTxForStatus" class="flex flex-col gap-3">
+          <p class="text-xs text-[#64748B]">
+            Pilih status pengerjaan untuk Nota <span class="font-mono font-bold text-[#0F172A]">#{{ selectedTxForStatus.receipt_number || selectedTxForStatus.id }}</span>:
+          </p>
+
+          <select
+            v-model="selectedProductionStatus"
+            class="w-full px-3 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs font-extrabold text-[#0F172A]"
+          >
+            <option value="diproses">🔄 Diproses (Pencucian/Pengeringan)</option>
+            <option value="siap_diambil">🧺 Siap Diambil</option>
+            <option value="selesai">✅ Selesai (Sudah Diambil)</option>
+          </select>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              @click="showStatusModal = false"
+              class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-200"
+            >
+              Batal
+            </button>
+            <button
+              @click="handleUpdateStatusSubmit"
+              class="px-4 py-2 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669]"
+            >
+              Simpan Status
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Batalkan Transaksi (Soft Void) -->
+    <div
+      v-if="showVoidModal"
+      class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+      @click.self="showVoidModal = false"
+    >
+      <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl flex flex-col gap-4 border border-[#E2E8F0]">
+        <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🚫</span>
+            <h3 class="text-base font-black text-[#9F1239]">Batalkan Nota (Void)</h3>
+          </div>
+          <button @click="showVoidModal = false" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+        </div>
+
+        <div v-if="selectedTxForVoid" class="flex flex-col gap-4">
+          <div class="bg-rose-50 p-3 rounded-lg border border-rose-200 text-xs text-rose-900">
+            Anda akan membatalkan Nota <span class="font-mono font-bold">#{{ selectedTxForVoid.receipt_number || selectedTxForVoid.id }}</span> senilai <span class="font-mono font-bold">{{ formatCurrency(selectedTxForVoid.total_amount) }}</span>.
+            Nilai nota ini akan dikeluarkan dari perhitungan omzet dan laba bersih.
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Alasan Pembatalan <span class="text-rose-500">*</span></label>
+            <textarea
+              v-model="voidReasonInput"
+              rows="3"
+              placeholder="Contoh: Salah input berat pakaian, pelanggan membatalkan pesanan..."
+              required
+              class="w-full p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A] focus:outline-none focus:border-rose-500"
+            ></textarea>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-1">
+            <button
+              @click="showVoidModal = false"
+              class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-200"
+            >
+              Batal
+            </button>
+            <button
+              @click="handleVoidSubmit"
+              class="px-4 py-2 bg-[#F43F5E] hover:bg-[#E11D48] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#9F1239]"
+            >
+              Konfirmasi Void Nota
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
