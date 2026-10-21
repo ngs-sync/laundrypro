@@ -21,7 +21,7 @@ const handleLogin = async () => {
 
   isLoading.value = true
   try {
-    await authStore.loginOwnerOrSuperadmin(email.value, password.value)
+    await authStore.loginOwnerOrSuperadmin(email.value, password.value, 'owner')
     router.push('/owner')
   } catch (err) {
     console.error('Owner login error:', err)

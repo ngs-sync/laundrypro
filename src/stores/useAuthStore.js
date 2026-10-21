@@ -55,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = {
         id: userProfile.id,
         full_name: userProfile.full_name,
-        role: userProfile.role,
+        role: userProfile.role || 'staff',
         tenant_id: userProfile.tenant_id
       }
       tenantCode.value = tenantCodeInput.trim()
@@ -77,11 +77,12 @@ export const useAuthStore = defineStore('auth', () => {
   /**
    * Action loginOwnerOrSuperadmin: Login untuk Owner atau Superadmin menggunakan email & password.
    */
-  async function loginOwnerOrSuperadmin(email, password) {
+  async function loginOwnerOrSuperadmin(email, password, defaultRole = 'owner') {
     isLoading.value = true
     try {
+      const cleanEmail = email.trim()
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: cleanEmail,
         password
       })
 
@@ -102,12 +103,26 @@ export const useAuthStore = defineStore('auth', () => {
         console.warn('Gagal mengambil data profil dari tabel users:', profileError)
       }
 
+      let resolvedRole = userProfile?.role || authData.user.user_metadata?.role || authData.user.app_metadata?.role
+
+      if (!resolvedRole) {
+        if (defaultRole === 'superadmin' || cleanEmail.toLowerCase().includes('superadmin')) {
+          resolvedRole = 'superadmin'
+        } else {
+          resolvedRole = defaultRole || 'owner'
+        }
+      } else if (defaultRole === 'superadmin' && resolvedRole !== 'superadmin') {
+        if (cleanEmail.toLowerCase().includes('superadmin') || authData.user.user_metadata?.role === 'superadmin') {
+          resolvedRole = 'superadmin'
+        }
+      }
+
       // Set State
       user.value = {
         id: userProfile?.id || authData.user.id,
-        full_name: userProfile?.full_name || authData.user.email,
-        role: userProfile?.role || 'owner',
-        tenant_id: userProfile?.tenant_id || null
+        full_name: userProfile?.full_name || authData.user.user_metadata?.full_name || authData.user.email,
+        role: resolvedRole,
+        tenant_id: userProfile?.tenant_id || authData.user.user_metadata?.tenant_id || null
       }
       isAuthenticated.value = true
 
@@ -152,20 +167,23 @@ export const useAuthStore = defineStore('auth', () => {
           .eq('auth_user_id', authUser.id)
           .maybeSingle()
 
-        if (userProfile) {
-          user.value = {
-            id: userProfile.id,
-            full_name: userProfile.full_name,
-            role: userProfile.role,
-            tenant_id: userProfile.tenant_id
+        let resolvedRole = userProfile?.role || authUser.user_metadata?.role || authUser.app_metadata?.role
+
+        if (!resolvedRole) {
+          if (authUser.email?.toLowerCase().includes('superadmin')) {
+            resolvedRole = 'superadmin'
+          } else if (userProfile) {
+            resolvedRole = 'owner'
+          } else {
+            resolvedRole = 'staff'
           }
-        } else {
-          user.value = {
-            id: authUser.id,
-            full_name: authUser.user_metadata?.full_name || authUser.email,
-            role: authUser.user_metadata?.role || 'staff',
-            tenant_id: authUser.user_metadata?.tenant_id || null
-          }
+        }
+
+        user.value = {
+          id: userProfile?.id || authUser.id,
+          full_name: userProfile?.full_name || authUser.user_metadata?.full_name || authUser.email,
+          role: resolvedRole,
+          tenant_id: userProfile?.tenant_id || authUser.user_metadata?.tenant_id || null
         }
         isAuthenticated.value = true
       } else {
