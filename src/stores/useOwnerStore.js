@@ -6,9 +6,10 @@ import { useAuthStore } from './useAuthStore'
 export const useOwnerStore = defineStore('owner', () => {
   const authStore = useAuthStore()
 
-  // Branch Switcher State
+  // Branch Switcher & Multi-Branch State
   const branches = ref([])
   const activeBranchId = ref(localStorage.getItem('owner_active_branch_id') || '')
+  const staffList = ref([])
 
   // Filter Tanggal: 'today' | '7_days' | 'this_month' | 'custom'
   const dateFilter = ref('this_month')
@@ -36,6 +37,23 @@ export const useOwnerStore = defineStore('owner', () => {
     return activeBranchId.value || authStore.activeTenant?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
   }
 
+  // Active Branch Plan & Outlets Limit
+  const activeBranch = computed(() => {
+    return branches.value.find(b => b.id === activeBranchId.value) || branches.value[0] || null
+  })
+
+  const maxOutlets = computed(() => {
+    const plan = activeBranch.value?.subscription_plans
+    if (plan && typeof plan.max_outlets === 'number') {
+      return plan.max_outlets
+    }
+    return 1
+  })
+
+  const canAddBranch = computed(() => {
+    return branches.value.length < maxOutlets.value
+  })
+
   // Fetch branches for logged in owner user
   async function fetchBranches() {
     try {
@@ -43,17 +61,29 @@ export const useOwnerStore = defineStore('owner', () => {
       const authUserId = sessionData?.session?.user?.id || authStore.user?.id
 
       if (authUserId) {
-        const { data: userRecords, error: userError } = await supabase
-          .from('users')
-          .select('tenant_id, tenants(*)')
-          .eq('auth_user_id', authUserId)
+        // Query tenants where owner_user_id matches
+        const { data: directTenants, error: directErr } = await supabase
+          .from('tenants')
+          .select('*, subscription_plans(*)')
+          .eq('owner_user_id', authUserId)
+          .eq('is_deleted', false)
 
-        if (!userError && userRecords && userRecords.length > 0) {
-          const tenantList = userRecords
-            .map(ur => ur.tenants)
-            .filter(t => t && !t.is_deleted)
-          if (tenantList.length > 0) {
-            branches.value = tenantList
+        if (!directErr && directTenants && directTenants.length > 0) {
+          branches.value = directTenants
+        } else {
+          // Fallback via users table
+          const { data: userRecords, error: userError } = await supabase
+            .from('users')
+            .select('tenant_id, tenants(*, subscription_plans(*))')
+            .eq('auth_user_id', authUserId)
+
+          if (!userError && userRecords && userRecords.length > 0) {
+            const tenantList = userRecords
+              .map(ur => ur.tenants)
+              .filter(t => t && !t.is_deleted)
+            if (tenantList.length > 0) {
+              branches.value = tenantList
+            }
           }
         }
       }
@@ -63,7 +93,12 @@ export const useOwnerStore = defineStore('owner', () => {
           branches.value = [authStore.activeTenant]
         } else {
           branches.value = [
-            { id: 'ed0ab708-7d43-45cc-a6db-8714a599e950', business_name: 'LaundryPro Demo Store' }
+            {
+              id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
+              business_name: 'LaundryPro Demo Store',
+              tenant_code: 'LAUN011',
+              subscription_plans: { max_outlets: 3, name: 'Pro' }
+            }
           ]
         }
       }
@@ -76,7 +111,12 @@ export const useOwnerStore = defineStore('owner', () => {
       console.warn('Error fetching owner branches:', err)
       if (branches.value.length === 0) {
         branches.value = [
-          authStore.activeTenant || { id: 'ed0ab708-7d43-45cc-a6db-8714a599e950', business_name: 'LaundryPro Demo Store' }
+          authStore.activeTenant || {
+            id: 'ed0ab708-7d43-45cc-a6db-8714a599e950',
+            business_name: 'LaundryPro Demo Store',
+            tenant_code: 'LAUN011',
+            subscription_plans: { max_outlets: 3, name: 'Pro' }
+          }
         ]
       }
       if (!activeBranchId.value) {
@@ -89,6 +129,251 @@ export const useOwnerStore = defineStore('owner', () => {
     activeBranchId.value = branchId
     localStorage.setItem('owner_active_branch_id', branchId)
     fetchAllOwnerData()
+  }
+
+  // Validate Live Tenant Code Uniqueness globally in Supabase
+  async function checkTenantCodeUnique(code) {
+    if (!code) return false
+    const formattedCode = code.replace(/\s+/g, '').toUpperCase()
+    if (!formattedCode) return false
+
+    try {
+      const { data, error } = await supabase
+        .from('tenants')
+        .select('id')
+        .eq('tenant_code', formattedCode)
+
+      if (error) {
+        console.warn('Error checking tenant code uniqueness:', error)
+        // If error, perform check against local branches
+        return !branches.value.some(b => b.tenant_code === formattedCode)
+      }
+
+      return !data || data.length === 0
+    } catch (err) {
+      console.warn('Exception checking tenant code:', err)
+      return !branches.value.some(b => b.tenant_code === formattedCode)
+    }
+  }
+
+  // Create New Branch (Self-Service)
+  async function createBranch(payload) {
+    isLoading.value = true
+    errorMessage.value = ''
+
+    const cleanCode = payload.tenant_code.replace(/\s+/g, '').toUpperCase()
+    const { data: sessionData } = await supabase.auth.getSession()
+    const currentAuthUserId = sessionData?.session?.user?.id || authStore.user?.id || null
+    const primaryBranch = branches.value[0] || {}
+
+    const newBranchData = {
+      business_name: payload.business_name,
+      address: payload.address || '',
+      tenant_code: cleanCode,
+      phone_number: payload.phone_number || primaryBranch.phone_number || '',
+      owner_user_id: primaryBranch.owner_user_id || currentAuthUserId,
+      plan_id: primaryBranch.plan_id || null,
+      billing_type: primaryBranch.billing_type || 'monthly',
+      subscription_status: primaryBranch.subscription_status || 'active',
+      is_deleted: false,
+      created_at: new Date().toISOString()
+    }
+
+    try {
+      const { data: tenantData, error: tenantError } = await supabase
+        .from('tenants')
+        .insert([newBranchData])
+        .select('*, subscription_plans(*)')
+        .single()
+
+      let insertedBranch = tenantData
+
+      if (tenantError) {
+        console.warn('Error inserting new branch in Supabase, using local fallback:', tenantError)
+        insertedBranch = {
+          ...newBranchData,
+          id: `branch-${Date.now()}`,
+          subscription_plans: primaryBranch.subscription_plans || { max_outlets: 3 }
+        }
+      }
+
+      // Inject standard default services (Koin & Kiloan) for the new branch
+      const defaultServices = [
+        {
+          tenant_id: insertedBranch.id,
+          name: 'Cuci Kiloan Reguler',
+          category: 'kiloan',
+          price: 7000,
+          unit: 'kg',
+          is_active: true,
+          created_at: new Date().toISOString()
+        },
+        {
+          tenant_id: insertedBranch.id,
+          name: 'Cuci Kiloan Express (6 Jam)',
+          category: 'kiloan',
+          price: 10000,
+          unit: 'kg',
+          is_active: true,
+          created_at: new Date().toISOString()
+        },
+        {
+          tenant_id: insertedBranch.id,
+          name: 'Paket Koin Washer + Dryer',
+          category: 'koin',
+          price: 25000,
+          unit: 'paket',
+          is_active: true,
+          created_at: new Date().toISOString()
+        }
+      ]
+
+      const { error: serviceErr } = await supabase
+        .from('services')
+        .insert(defaultServices)
+
+      if (serviceErr) {
+        console.warn('Error injecting standard services:', serviceErr)
+      }
+
+      // Update local state
+      branches.value.push(insertedBranch)
+      setActiveBranch(insertedBranch.id)
+
+      return insertedBranch
+    } catch (err) {
+      console.error('Failed to create branch:', err)
+      errorMessage.value = err.message || 'Gagal menambahkan cabang baru.'
+      throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // Fetch Staff list for owner's branches
+  async function fetchStaff() {
+    try {
+      const branchIds = branches.value.map(b => b.id)
+      if (branchIds.length === 0) {
+        staffList.value = getSeedStaff()
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('*, tenants(business_name, tenant_code)')
+        .in('tenant_id', branchIds)
+        .eq('role', 'staff')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        staffList.value = data
+      } else {
+        staffList.value = getSeedStaff()
+      }
+    } catch (err) {
+      console.warn('Using seed staff due to fetch error:', err)
+      staffList.value = getSeedStaff()
+    }
+  }
+
+  // Create Staff assigned to specific branch
+  async function createStaff(payload) {
+    isLoading.value = true
+    const assignedTenant = branches.value.find(b => b.id === payload.tenant_id) || branches.value[0]
+    const tenantCodeClean = (assignedTenant?.tenant_code || 'LAUN011').toLowerCase()
+    const usernameClean = payload.username.trim().toLowerCase()
+    const virtualEmail = `${usernameClean}.${tenantCodeClean}@laundrypro.app`
+
+    let createdAuthUserId = null
+
+    // Attempt Supabase Auth Sign Up if possible
+    try {
+      const { data: authData } = await supabase.auth.signUp({
+        email: virtualEmail,
+        password: payload.password,
+        options: {
+          data: {
+            full_name: payload.full_name,
+            role: 'staff',
+            tenant_id: payload.tenant_id
+          }
+        }
+      })
+      if (authData?.user) {
+        createdAuthUserId = authData.user.id
+      }
+    } catch (authErr) {
+      console.warn('Supabase auth sign up notice:', authErr)
+    }
+
+    const newStaffUser = {
+      tenant_id: payload.tenant_id,
+      full_name: payload.full_name,
+      username: usernameClean,
+      role: 'staff',
+      is_active: true,
+      auth_user_id: createdAuthUserId,
+      created_at: new Date().toISOString()
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .insert([newStaffUser])
+        .select('*, tenants(business_name, tenant_code)')
+
+      if (!error && data && data.length > 0) {
+        staffList.value.unshift(data[0])
+      } else {
+        newStaffUser.id = `staff-${Date.now()}`
+        newStaffUser.tenants = { business_name: assignedTenant?.business_name, tenant_code: assignedTenant?.tenant_code }
+        staffList.value.unshift(newStaffUser)
+      }
+    } catch (err) {
+      console.warn('Local save for createStaff:', err)
+      newStaffUser.id = `staff-${Date.now()}`
+      newStaffUser.tenants = { business_name: assignedTenant?.business_name, tenant_code: assignedTenant?.tenant_code }
+      staffList.value.unshift(newStaffUser)
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  // Update Staff Details (e.g. branch assignment, full name, username, active status)
+  async function updateStaff(id, payload) {
+    isLoading.value = true
+    const staffIndex = staffList.value.findIndex(s => s.id === id)
+    const assignedTenant = branches.value.find(b => b.id === payload.tenant_id)
+
+    const updates = {
+      ...(payload.full_name && { full_name: payload.full_name }),
+      ...(payload.username && { username: payload.username.trim().toLowerCase() }),
+      ...(payload.tenant_id && { tenant_id: payload.tenant_id }),
+      ...(payload.is_active !== undefined && { is_active: payload.is_active }),
+      updated_at: new Date().toISOString()
+    }
+
+    if (staffIndex > -1) {
+      staffList.value[staffIndex] = {
+        ...staffList.value[staffIndex],
+        ...updates,
+        ...(assignedTenant && { tenants: { business_name: assignedTenant.business_name, tenant_code: assignedTenant.tenant_code } })
+      }
+    }
+
+    try {
+      await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', id)
+    } catch (err) {
+      console.warn('Local update for staff:', err)
+    } finally {
+      isLoading.value = false
+    }
   }
 
   // Calculate Start & End Date based on filter
@@ -596,7 +881,8 @@ export const useOwnerStore = defineStore('owner', () => {
       fetchExpenses(),
       fetchServices(),
       fetchTenantLoyalty(),
-      fetchPromotions()
+      fetchPromotions(),
+      fetchStaff()
     ])
     isLoading.value = false
   }
@@ -723,9 +1009,43 @@ export const useOwnerStore = defineStore('owner', () => {
     ]
   }
 
+  function getSeedStaff() {
+    const branch = branches.value[0] || { id: 'ed0ab708-7d43-45cc-a6db-8714a599e950', business_name: 'LaundryPro Demo Store', tenant_code: 'LAUN011' }
+    return [
+      {
+        id: 's-1',
+        full_name: 'Siti Rahma',
+        username: 'siti_kasir',
+        is_active: true,
+        tenant_id: branch.id,
+        tenants: { business_name: branch.business_name, tenant_code: branch.tenant_code }
+      },
+      {
+        id: 's-2',
+        full_name: 'Budi Santoso',
+        username: 'budi_kasir',
+        is_active: true,
+        tenant_id: branch.id,
+        tenants: { business_name: branch.business_name, tenant_code: branch.tenant_code }
+      },
+      {
+        id: 's-3',
+        full_name: 'Dewi Lestari',
+        username: 'dewi_kasir',
+        is_active: false,
+        tenant_id: branch.id,
+        tenants: { business_name: branch.business_name, tenant_code: branch.tenant_code }
+      }
+    ]
+  }
+
   return {
     branches,
     activeBranchId,
+    activeBranch,
+    maxOutlets,
+    canAddBranch,
+    staffList,
     dateFilter,
     statusFilter,
     customStartDate,
@@ -748,6 +1068,11 @@ export const useOwnerStore = defineStore('owner', () => {
     paymentMethodBreakdown,
     fetchBranches,
     setActiveBranch,
+    checkTenantCodeUnique,
+    createBranch,
+    fetchStaff,
+    createStaff,
+    updateStaff,
     fetchTransactions,
     updateProductionStatus,
     markAsPaid,

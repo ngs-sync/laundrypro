@@ -2,12 +2,19 @@
 import { ref, onMounted, computed } from 'vue'
 import { useOwnerStore } from '../stores/useOwnerStore'
 import { useAuthStore } from '../stores/useAuthStore'
+import CreateBranchModal from '../components/CreateBranchModal.vue'
+import StaffManagementModal from '../components/StaffManagementModal.vue'
 
 const ownerStore = useOwnerStore()
 const authStore = useAuthStore()
 
 // Tab Active: 'transactions' | 'financial' | 'expenses' | 'services' | 'promotions' | 'staff'
 const activeTab = ref('transactions')
+
+// Modals Multi-Cabang & Staf
+const showCreateBranchModal = ref(false)
+const showStaffModal = ref(false)
+const selectedStaffForEdit = ref(null)
 
 // Modal Status Produksi
 const showStatusModal = ref(false)
@@ -55,19 +62,9 @@ const newPromo = ref({
 })
 const promoSuccessMsg = ref('')
 
-// State Manajemen Staf
-const staffList = ref([
-  { id: 1, name: 'Siti Rahma', username: 'siti_kasir', is_active: true },
-  { id: 2, name: 'Budi Santoso', username: 'budi_kasir', is_active: true },
-  { id: 3, name: 'Dewi Lestari', username: 'dewi_kasir', is_active: false }
-])
-
-const newStaff = ref({
-  full_name: '',
-  username: '',
-  password: ''
-})
+// Feedback messages
 const staffSuccessMsg = ref('')
+const branchSuccessMsg = ref('')
 
 const showResetModal = ref(false)
 const selectedStaffForReset = ref(null)
@@ -101,6 +98,12 @@ function formatDate(dateStr) {
     hour: '2-digit',
     minute: '2-digit'
   }).format(d)
+}
+
+function getBranchName(tenantId) {
+  if (!tenantId) return 'Semua Cabang'
+  const branch = ownerStore.branches.find(b => b.id === tenantId)
+  return branch ? (branch.business_name || branch.name) : 'Cabang Utama'
 }
 
 // Handlers Transaksi
@@ -148,6 +151,11 @@ function handleSendWA(tx) {
 function handleBranchChange(event) {
   const branchId = event.target.value
   ownerStore.setActiveBranch(branchId)
+}
+
+function handleBranchCreated(newBranch) {
+  branchSuccessMsg.value = `Cabang '${newBranch.business_name}' berhasil ditambahkan!`
+  setTimeout(() => (branchSuccessMsg.value = ''), 4000)
 }
 
 // Handlers Expense, Service, Loyalty, Promo
@@ -222,33 +230,24 @@ async function handleAddPromo() {
   }
 }
 
-// Handlers Manajemen Staf
-function handleAddStaff() {
-  if (!newStaff.value.full_name.trim() || !newStaff.value.username.trim() || !newStaff.value.password) {
-    alert('Mohon isi semua bidang input staf baru.')
-    return
-  }
-
-  const staffData = {
-    id: Date.now(),
-    name: newStaff.value.full_name.trim(),
-    username: newStaff.value.username.trim().toLowerCase(),
-    is_active: true
-  }
-
-  staffList.value.push(staffData)
-  staffSuccessMsg.value = `Staf ${staffData.name} berhasil ditambahkan!`
-  setTimeout(() => (staffSuccessMsg.value = ''), 3000)
-
-  newStaff.value = {
-    full_name: '',
-    username: '',
-    password: ''
-  }
+// Handlers Manajemen Staf Modal
+function openAddStaffModal() {
+  selectedStaffForEdit.value = null
+  showStaffModal.value = true
 }
 
-function handleToggleStaffStatus(staff) {
-  staff.is_active = !staff.is_active
+function openEditStaffModal(staff) {
+  selectedStaffForEdit.value = staff
+  showStaffModal.value = true
+}
+
+function handleStaffSuccess() {
+  staffSuccessMsg.value = 'Data staf berhasil diperbarui!'
+  setTimeout(() => (staffSuccessMsg.value = ''), 3000)
+}
+
+async function handleToggleStaffStatus(staff) {
+  await ownerStore.updateStaff(staff.id, { is_active: !staff.is_active })
 }
 
 function openResetPasswordModal(staff) {
@@ -263,7 +262,7 @@ function handleResetPasswordSubmit() {
     return
   }
 
-  resetSuccessMsg.value = `Password untuk ${selectedStaffForReset.value.name} berhasil direset!`
+  resetSuccessMsg.value = `Password untuk ${selectedStaffForReset.value.full_name || selectedStaffForReset.name} berhasil direset!`
   setTimeout(() => (resetSuccessMsg.value = ''), 3000)
 
   showResetModal.value = false
@@ -289,7 +288,7 @@ function handleResetPasswordSubmit() {
           </div>
 
           <!-- Branch Switcher & Manual Refresh Button -->
-          <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          <div class="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
             <!-- Branch Switcher Dropdown -->
             <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-xs font-bold w-full sm:w-auto">
               <span class="text-slate-400">🏪 Cabang:</span>
@@ -309,17 +308,31 @@ function handleResetPasswordSubmit() {
               </select>
             </div>
 
+            <!-- Tambah Cabang CTA Button -->
+            <button
+              @click="showCreateBranchModal = true"
+              class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-extrabold border border-emerald-500 transition-all flex items-center gap-1.5 active:translate-y-[1px] shadow-sm"
+            >
+              <span>➕</span>
+              <span>Tambah Cabang</span>
+            </button>
+
             <!-- Manual Refresh Button -->
             <button
               @click="ownerStore.fetchAllOwnerData"
               :disabled="ownerStore.isLoading"
-              class="px-3 py-2 bg-[#10B981] hover:bg-[#059669] text-white rounded-lg text-xs font-extrabold border border-[#10B981] transition-all flex items-center gap-1.5 active:translate-y-[1px] shadow-sm ml-auto sm:ml-0"
+              class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-extrabold border border-slate-600 transition-all flex items-center gap-1.5 active:translate-y-[1px] shadow-sm ml-auto sm:ml-0"
               title="Muat Ulang Data"
             >
               <span :class="{ 'animate-spin': ownerStore.isLoading }">🔄</span>
-              <span>Refresh Data</span>
+              <span>Refresh</span>
             </button>
           </div>
+        </div>
+
+        <!-- Banner Success Branch Creation -->
+        <div v-if="branchSuccessMsg" class="p-3 bg-emerald-500/20 text-emerald-300 text-xs font-bold rounded-lg border border-emerald-500/40">
+          {{ branchSuccessMsg }}
         </div>
 
         <!-- Navigasi Tab Utama -->
@@ -399,7 +412,7 @@ function handleResetPasswordSubmit() {
             ]"
           >
             <span>👥</span>
-            <span>Staf</span>
+            <span>Staf & Cabang</span>
           </button>
         </div>
       </div>
@@ -1235,92 +1248,134 @@ function handleResetPasswordSubmit() {
         </div>
       </div>
 
-      <!-- ================= TAB 5: MANAJEMEN STAF ================= -->
+      <!-- ================= TAB 5: MANAJEMEN STAF & PENUGASAN CABANG ================= -->
       <div v-if="activeTab === 'staff'" class="flex flex-col gap-6">
-        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-5">
-          <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
-            <div>
-              <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider">Manajemen Staf Kasir</h2>
-              <p class="text-xs text-[#64748B]">Kelola hak akses, tambah staf kasir baru, dan reset password staf</p>
+        <!-- Ringkasan Cabang & Tombol Tambah Cabang -->
+        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-xl">🏪</span>
+              <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider">Daftar Cabang Toko</h2>
             </div>
+            <p class="text-xs text-[#64748B] mt-0.5">
+              Kuota Cabang Terpakai: <span class="font-extrabold text-[#0F172A]">{{ ownerStore.branches.length }} / {{ ownerStore.maxOutlets }} Cabang</span>
+            </p>
           </div>
 
-          <!-- Form Tambah Staf -->
-          <form @submit.prevent="handleAddStaff" class="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0]">
+          <button
+            @click="showCreateBranchModal = true"
+            class="px-4 py-2.5 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-xl border-b-2 border-[#059669] shadow-sm transition-all active:translate-y-[1px] flex items-center gap-1.5"
+          >
+            <span>➕</span>
+            <span>Tambah Cabang Baru</span>
+          </button>
+        </div>
+
+        <!-- Tabel Cabang -->
+        <div class="bg-white rounded-xl border border-[#E2E8F0] shadow-xs overflow-hidden flex flex-col">
+          <div class="p-4 bg-[#F8FAFC] border-b border-[#E2E8F0]">
+            <h3 class="text-xs font-extrabold text-[#0F172A] uppercase tracking-wider">Cabang Toko Terdaftar</h3>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[600px]">
+              <thead>
+                <tr class="bg-[#0F172A] text-white text-[11px] font-mono font-bold uppercase tracking-wider h-10">
+                  <th class="p-3">Nama Cabang</th>
+                  <th class="p-3">Kode Cabang</th>
+                  <th class="p-3">Alamat</th>
+                  <th class="p-3 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#E2E8F0] text-xs">
+                <tr
+                  v-for="(b, idx) in ownerStore.branches"
+                  :key="b.id"
+                  :class="['transition-colors hover:bg-slate-50', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
+                >
+                  <td class="p-3 font-extrabold text-[#0F172A]">
+                    {{ b.business_name || b.name }}
+                  </td>
+                  <td class="p-3 font-mono font-bold text-[#10B981]">
+                    <span class="bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      {{ b.tenant_code || 'LAUN' }}
+                    </span>
+                  </td>
+                  <td class="p-3 text-[#64748B]">
+                    {{ b.address || '-' }}
+                  </td>
+                  <td class="p-3 text-center">
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-[#ECFDF5] text-[#00422B] border border-[#10B981]/30">
+                      Aktif
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tabel Staf Kasir -->
+        <div class="bg-white p-5 rounded-xl border border-[#E2E8F0] shadow-xs flex flex-col gap-5">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
             <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Nama Lengkap</label>
-              <input
-                v-model="newStaff.full_name"
-                type="text"
-                placeholder="Contoh: Siti Rahma"
-                required
-                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
-              />
+              <h2 class="text-base font-extrabold text-[#0F172A] uppercase tracking-wider">Manajemen Staf & Penugasan Cabang</h2>
+              <p class="text-xs text-[#64748B]">Kelola akun staf kasir dan assign ke lokasi cabang spesifik</p>
             </div>
 
-            <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">Username Staf</label>
-              <input
-                v-model="newStaff.username"
-                type="text"
-                placeholder="siti_kasir"
-                required
-                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold font-mono text-[#0F172A]"
-              />
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">PIN / Password Awal</label>
-              <input
-                v-model="newStaff.password"
-                type="password"
-                placeholder="******"
-                required
-                class="w-full px-3 py-2 bg-white border border-[#E2E8F0] rounded-lg text-xs font-bold text-[#0F172A]"
-              />
-            </div>
-
-            <div class="flex items-end">
-              <button
-                type="submit"
-                class="w-full py-2 bg-[#10B981] hover:bg-[#059669] text-white font-extrabold text-xs rounded-lg border-b-2 border-[#059669] shadow-xs transition-all active:translate-y-[1px] min-h-[38px]"
-              >
-                + Tambah Staf Baru
-              </button>
-            </div>
-          </form>
+            <button
+              @click="openAddStaffModal"
+              class="px-4 py-2 bg-[#10B981] hover:bg-[#059669] text-white text-xs font-extrabold rounded-lg border-b-2 border-[#059669] transition-all active:translate-y-[1px] flex items-center gap-1.5"
+            >
+              <span>+</span>
+              <span>Tambah Staf Baru</span>
+            </button>
+          </div>
 
           <div v-if="staffSuccessMsg" class="p-3 bg-[#ECFDF5] text-[#00422B] text-xs font-bold rounded-lg border border-[#10B981]/30">
             {{ staffSuccessMsg }}
           </div>
 
-          <!-- Tabel Staf Kasir -->
+          <!-- Tabel Staf -->
           <div class="overflow-x-auto rounded-lg border border-[#E2E8F0]">
-            <table class="w-full text-left border-collapse min-w-[500px]">
+            <table class="w-full text-left border-collapse min-w-[650px]">
               <thead>
                 <tr class="bg-[#0F172A] text-white text-[11px] font-mono font-bold uppercase tracking-wider h-10">
                   <th class="p-3">Nama Staf</th>
                   <th class="p-3">Username</th>
+                  <th class="p-3">Ditugaskan di Cabang</th>
                   <th class="p-3 text-center">Status</th>
                   <th class="p-3 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-[#E2E8F0] text-xs">
                 <tr
-                  v-for="(staff, idx) in staffList"
+                  v-for="(staff, idx) in ownerStore.staffList"
                   :key="staff.id"
                   :class="['transition-colors hover:bg-[#F1F5F9]', idx % 2 === 0 ? 'bg-white' : 'bg-[#F8FAFC]']"
                 >
+                  <!-- Nama Staf -->
                   <td class="p-3">
-                    <span class="font-bold text-[#0F172A]">{{ staff.name }}</span>
+                    <span class="font-bold text-[#0F172A]">{{ staff.full_name || staff.name }}</span>
                   </td>
 
+                  <!-- Username -->
                   <td class="p-3 font-mono text-[#64748B]">
                     <span class="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-bold text-[#0F172A]">
                       @{{ staff.username }}
                     </span>
                   </td>
 
+                  <!-- Ditugaskan di Cabang -->
+                  <td class="p-3">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm">🏪</span>
+                      <span class="font-extrabold text-[#0F172A]">
+                        Ditugaskan di Cabang: {{ staff.tenants?.business_name || getBranchName(staff.tenant_id) }}
+                      </span>
+                    </div>
+                  </td>
+
+                  <!-- Status -->
                   <td class="p-3 text-center">
                     <span
                       :class="[
@@ -1334,13 +1389,23 @@ function handleResetPasswordSubmit() {
                     </span>
                   </td>
 
+                  <!-- Aksi -->
                   <td class="p-3 text-right">
                     <div class="flex items-center justify-end gap-2">
                       <button
+                        @click="openEditStaffModal(staff)"
+                        class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-[#0F172A] font-bold text-xs rounded-lg transition-all border border-slate-200 active:translate-y-[1px]"
+                        title="Edit Data & Cabang Staf"
+                      >
+                        ✏️ Edit
+                      </button>
+
+                      <button
                         @click="openResetPasswordModal(staff)"
                         class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-[#0F172A] font-bold text-xs rounded-lg transition-all border border-slate-200 active:translate-y-[1px]"
+                        title="Reset Password Staf"
                       >
-                        🔑 Reset Password
+                        🔑 Reset
                       </button>
 
                       <button
@@ -1357,6 +1422,12 @@ function handleResetPasswordSubmit() {
                     </div>
                   </td>
                 </tr>
+
+                <tr v-if="ownerStore.staffList.length === 0">
+                  <td colspan="5" class="p-6 text-center text-xs text-[#64748B]">
+                    Belum ada staf kasir terdaftar.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1364,6 +1435,21 @@ function handleResetPasswordSubmit() {
       </div>
 
     </main>
+
+    <!-- Modal Form Tambah Cabang Baru -->
+    <CreateBranchModal
+      :show="showCreateBranchModal"
+      @close="showCreateBranchModal = false"
+      @success="handleBranchCreated"
+    />
+
+    <!-- Modal Form Tambah / Edit Staf -->
+    <StaffManagementModal
+      :show="showStaffModal"
+      :staffToEdit="selectedStaffForEdit"
+      @close="showStaffModal = false"
+      @success="handleStaffSuccess"
+    />
 
     <!-- Modal Form Tambah Layanan Baru -->
     <div
@@ -1550,7 +1636,7 @@ function handleResetPasswordSubmit() {
       <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl flex flex-col gap-5 border border-[#E2E8F0] animate-slide-up">
         <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
           <div>
-            <h3 class="text-lg font-black text-[#0F172A]">Edit / Reset Password Staf</h3>
+            <h3 class="text-lg font-black text-[#0F172A]">Reset Password Staf</h3>
             <p class="text-xs text-[#64748B]">Atur ulang kata sandi atau PIN untuk akun staf kasir</p>
           </div>
           <button
@@ -1564,7 +1650,7 @@ function handleResetPasswordSubmit() {
         <div v-if="selectedStaffForReset" class="flex flex-col gap-4">
           <div class="bg-[#F8FAFC] p-3 rounded-lg border border-[#E2E8F0] flex flex-col gap-1">
             <span class="text-xs text-[#64748B] font-bold">Detail Staf:</span>
-            <span class="text-sm font-extrabold text-[#0F172A]">{{ selectedStaffForReset.name }}</span>
+            <span class="text-sm font-extrabold text-[#0F172A]">{{ selectedStaffForReset.full_name || selectedStaffForReset.name }}</span>
             <span class="text-xs font-mono text-[#10B981] font-bold">@{{ selectedStaffForReset.username }}</span>
           </div>
 
