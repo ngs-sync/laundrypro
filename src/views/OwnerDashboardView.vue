@@ -739,8 +739,8 @@ function handleResetPasswordSubmit() {
                 </tr>
 
                 <tr v-if="ownerStore.filteredTransactions.length === 0">
-                  <td colspan="8" class="p-8 text-center text-xs text-[#64748B]">
-                    Tidak ada transaksi ditemukan untuk filter ini.
+                  <td colspan="8" class="p-8 text-center text-xs text-[#64748B] font-medium">
+                    Belum ada data toko / transaksi.
                   </td>
                 </tr>
               </tbody>
@@ -999,8 +999,8 @@ function handleResetPasswordSubmit() {
                 </tr>
 
                 <tr v-if="ownerStore.filteredExpenses.length === 0">
-                  <td colspan="5" class="p-6 text-center text-xs text-[#64748B]">
-                    Belum ada data pengeluaran pada periode ini.
+                  <td colspan="5" class="p-6 text-center text-xs text-[#64748B] font-medium">
+                    Belum ada data pengeluaran.
                   </td>
                 </tr>
               </tbody>
@@ -1080,6 +1080,11 @@ function handleResetPasswordSubmit() {
                     >
                       {{ srv.is_active ? 'Nonaktifkan' : 'Aktifkan' }}
                     </button>
+                  </td>
+                </tr>
+                <tr v-if="ownerStore.services.length === 0">
+                  <td colspan="6" class="p-6 text-center text-xs text-[#64748B] font-medium">
+                    Belum ada data layanan.
                   </td>
                 </tr>
               </tbody>
@@ -1242,6 +1247,11 @@ function handleResetPasswordSubmit() {
                     </button>
                   </td>
                 </tr>
+                <tr v-if="ownerStore.promotions.length === 0">
+                  <td colspan="5" class="p-6 text-center text-xs text-[#64748B] font-medium">
+                    Belum ada data promo.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1307,6 +1317,11 @@ function handleResetPasswordSubmit() {
                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-[#ECFDF5] text-[#00422B] border border-[#10B981]/30">
                       Aktif
                     </span>
+                  </td>
+                </tr>
+                <tr v-if="ownerStore.branches.length === 0">
+                  <td colspan="4" class="p-6 text-center text-xs text-[#64748B] font-medium">
+                    Belum ada data toko / cabang.
                   </td>
                 </tr>
               </tbody>
@@ -1424,8 +1439,8 @@ function handleResetPasswordSubmit() {
                 </tr>
 
                 <tr v-if="ownerStore.staffList.length === 0">
-                  <td colspan="5" class="p-6 text-center text-xs text-[#64748B]">
-                    Belum ada staf kasir terdaftar.
+                  <td colspan="5" class="p-6 text-center text-xs text-[#64748B] font-medium">
+                    Belum ada data staf kasir terdaftar.
                   </td>
                 </tr>
               </tbody>
