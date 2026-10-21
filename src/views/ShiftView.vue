@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/useAuthStore'
 import { supabase } from '../lib/supabase'
@@ -7,13 +7,13 @@ import { supabase } from '../lib/supabase'
 const router = useRouter()
 const authStore = useAuthStore()
 
-// Buka Shift Inputs
-const openInitialCash = ref(100000)
-const openInitialCoins = ref(50)
+// Buka Shift Inputs (Inisialisasi dari 0)
+const openInitialCash = ref(0)
+const openInitialCoins = ref(0)
 
-// Tutup Shift Physical Inputs
-const actualCash = ref(100000)
-const actualCoins = ref(50)
+// Tutup Shift Physical Inputs (Inisialisasi dari 0)
+const actualCash = ref(0)
+const actualCoins = ref(0)
 const notes = ref('')
 
 // Calculated System Totals
@@ -23,12 +23,22 @@ const isLoadingMetrics = ref(false)
 const isSubmitting = ref(false)
 const shiftClosedSummary = ref(null)
 
+// History of shift reconciliations from Supabase
+const reconciliationHistory = ref([])
+const isLoadingHistory = ref(false)
+
 async function fetchShiftMetrics() {
   if (!authStore.activeShift) return
   isLoadingMetrics.value = true
   try {
     const openedAt = authStore.activeShift.openedAt
-    const tenantId = authStore.activeTenant.id
+    const tenantId = authStore.user?.tenant_id || authStore.activeTenant?.id
+
+    if (!tenantId) {
+      systemCash.value = 0
+      systemCoins.value = 0
+      return
+    }
 
     // Fetch transactions created after openedAt for active tenant
     const { data: txData, error } = await supabase
@@ -49,19 +59,21 @@ async function fetchShiftMetrics() {
       if (txIds.length > 0) {
         const { data: itemData } = await supabase
           .from('transaction_items')
-          .select('service_name, qty')
+          .select('item_name, quantity')
           .in('transaction_id', txIds)
 
         if (itemData) {
           const coinsCount = itemData.reduce((acc, item) => {
-            const name = (item.service_name || '').toLowerCase()
+            const name = (item.item_name || '').toLowerCase()
             if (name.includes('koin') || name.includes('cuci')) {
-              return acc + Number(item.qty || 0)
+              return acc + Number(item.quantity || 0)
             }
             return acc
           }, 0)
           systemCoins.value = coinsCount
         }
+      } else {
+        systemCoins.value = 0
       }
     } else {
       systemCash.value = 0
@@ -74,6 +86,36 @@ async function fetchShiftMetrics() {
   }
 }
 
+async function fetchReconciliationHistory() {
+  const tenantId = authStore.user?.tenant_id || authStore.activeTenant?.id
+  if (!tenantId) {
+    reconciliationHistory.value = []
+    return
+  }
+
+  isLoadingHistory.value = true
+  try {
+    const { data, error } = await supabase
+      .from('shift_reconciliations')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('closed_at', { ascending: false })
+      .limit(10)
+
+    if (!error && data) {
+      reconciliationHistory.value = data || []
+    } else {
+      console.warn('Error fetching shift reconciliations:', error)
+      reconciliationHistory.value = []
+    }
+  } catch (err) {
+    console.warn('Exception fetching shift reconciliations:', err)
+    reconciliationHistory.value = []
+  } finally {
+    isLoadingHistory.value = false
+  }
+}
+
 function handleOpenShift() {
   const shift = authStore.openShift(openInitialCash.value, openInitialCoins.value)
   actualCash.value = shift.initialCash
@@ -82,12 +124,12 @@ function handleOpenShift() {
 }
 
 const expectedCash = computed(() => {
-  const init = authStore.activeShift ? authStore.activeShift.initialCash : 0
+  const init = authStore.activeShift ? Number(authStore.activeShift.initialCash || 0) : 0
   return init + systemCash.value
 })
 
 const expectedCoins = computed(() => {
-  const init = authStore.activeShift ? authStore.activeShift.initialCoins : 0
+  const init = authStore.activeShift ? Number(authStore.activeShift.initialCoins || 0) : 0
   return Math.max(0, init - systemCoins.value)
 })
 
@@ -121,12 +163,14 @@ async function handleCloseShift() {
 
   const currentShift = authStore.activeShift
   const closedAt = new Date().toISOString()
+  const tenantId = authStore.user?.tenant_id || authStore.activeTenant?.id
+  const userId = authStore.user?.id || authStore.currentUser?.id
 
   const reconciliationData = {
-    tenant_id: authStore.activeTenant.id,
-    user_id: authStore.currentUser.id,
-    initial_cash: currentShift.initialCash,
-    initial_coins: currentShift.initialCoins,
+    tenant_id: tenantId,
+    user_id: userId,
+    initial_cash: Number(currentShift.initialCash) || 0,
+    initial_coins: Number(currentShift.initialCoins) || 0,
     system_cash: systemCash.value,
     system_coins: systemCoins.value,
     actual_cash: Number(actualCash.value) || 0,
@@ -140,10 +184,9 @@ async function handleCloseShift() {
   }
 
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('shift_reconciliations')
       .insert([reconciliationData])
-      .select()
 
     if (error) {
       console.warn('Supabase insert shift_reconciliations warning:', error.message)
@@ -153,28 +196,34 @@ async function handleCloseShift() {
   } finally {
     shiftClosedSummary.value = {
       ...reconciliationData,
-      tenant_name: authStore.activeTenant.name
+      tenant_name: authStore.activeTenant?.name || 'Toko Laundry'
     }
     authStore.clearActiveShift()
     isSubmitting.value = false
+    fetchReconciliationHistory()
   }
 }
 
 function resetSummaryView() {
   shiftClosedSummary.value = null
-  openInitialCash.value = 100000
-  openInitialCoins.value = 50
-  actualCash.value = 100000
-  actualCoins.value = 50
+  openInitialCash.value = 0
+  openInitialCoins.value = 0
+  actualCash.value = 0
+  actualCoins.value = 0
   notes.value = ''
 }
 
 onMounted(() => {
   if (authStore.activeShift) {
-    actualCash.value = authStore.activeShift.initialCash
-    actualCoins.value = authStore.activeShift.initialCoins
+    actualCash.value = Number(authStore.activeShift.initialCash || 0)
+    actualCoins.value = Number(authStore.activeShift.initialCoins || 0)
     fetchShiftMetrics()
   }
+  fetchReconciliationHistory()
+})
+
+watch(() => authStore.activeTenant?.id, () => {
+  fetchReconciliationHistory()
 })
 </script>
 
@@ -283,9 +332,9 @@ onMounted(() => {
                 v-model.number="openInitialCash"
                 type="number"
                 min="0"
-                step="5000"
+                step="1000"
                 class="w-full pl-11 pr-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-lg font-bold font-mono tabular-nums text-[#0F172A] focus:outline-none focus:border-[#10B981]"
-                placeholder="100000"
+                placeholder="0"
               />
             </div>
             <p class="text-[11px] text-[#64748B] mt-1">Uang kembalian yang disiapkan di laci kasir.</p>
@@ -302,7 +351,7 @@ onMounted(() => {
                 type="number"
                 min="0"
                 class="w-full pl-11 pr-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg text-lg font-bold font-mono tabular-nums text-[#0F172A] focus:outline-none focus:border-[#10B981]"
-                placeholder="50"
+                placeholder="0"
               />
             </div>
             <p class="text-[11px] text-[#64748B] mt-1">Jumlah token/koin fisik awal di tempat koin.</p>
@@ -324,7 +373,7 @@ onMounted(() => {
         <div class="bg-[#0F172A] text-white p-4 rounded-lg shadow-md flex items-center justify-between border border-slate-800">
           <div>
             <span class="text-xs text-slate-400 block font-medium">Petugas Shift</span>
-            <span class="text-sm font-bold text-[#10B981] block">{{ authStore.currentUser?.name || 'Kasir Staf' }}</span>
+            <span class="text-sm font-bold text-[#10B981] block">{{ authStore.user?.full_name || authStore.currentUser?.name || 'Kasir Staf' }}</span>
             <span class="text-[11px] text-slate-400 mt-0.5 block font-mono">Buka: {{ formatDate(authStore.activeShift.openedAt) }}</span>
           </div>
           <button
@@ -386,7 +435,7 @@ onMounted(() => {
           </div>
         </section>
 
-        <!-- Audit Uang Fisik Riil & Cash Deficit Indicator (Stitch Spec) -->
+        <!-- Audit Uang Fisik Riil & Cash Deficit Indicator -->
         <section class="bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-xs flex flex-col gap-4">
           <div class="border-b border-[#E2E8F0] pb-2">
             <h2 class="text-xs font-extrabold uppercase tracking-wider text-[#64748B] flex items-center gap-1">
@@ -409,7 +458,7 @@ onMounted(() => {
             />
           </div>
 
-          <!-- CASH REGISTER DEFICIT / DISCREPANCY INDICATOR (Stitch Component Spec 5) -->
+          <!-- CASH REGISTER DEFICIT / DISCREPANCY INDICATOR -->
           <div :class="[
             'p-4 rounded-lg border-2 flex items-center justify-between transition-all',
             cashDifference < 0
@@ -495,6 +544,56 @@ onMounted(() => {
           </button>
         </section>
       </div>
+
+      <!-- Riwayat Rekonsiliasi Shift Section -->
+      <section class="bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-xs flex flex-col gap-3">
+        <div class="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+          <h2 class="text-xs font-extrabold uppercase tracking-wider text-[#64748B] flex items-center gap-1">
+            <span>📜</span>
+            <span>Riwayat Rekonsiliasi Shift</span>
+          </h2>
+          <button
+            @click="fetchReconciliationHistory"
+            class="text-[11px] text-[#10B981] font-bold hover:underline"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div v-if="isLoadingHistory" class="py-4 text-center text-xs text-[#64748B]">
+          Memuat riwayat...
+        </div>
+
+        <div v-else-if="reconciliationHistory.length === 0" class="py-4 text-center text-xs text-[#64748B]">
+          Belum ada riwayat rekonsiliasi shift yang tersimpan.
+        </div>
+
+        <div v-else class="flex flex-col gap-2.5 max-h-64 overflow-y-auto">
+          <div
+            v-for="rec in reconciliationHistory"
+            :key="rec.id"
+            class="p-3 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0] text-xs flex flex-col gap-1.5"
+          >
+            <div class="flex justify-between font-mono text-[11px] text-[#64748B]">
+              <span>Buka: {{ formatDate(rec.opened_at) }}</span>
+              <span>Tutup: {{ formatDate(rec.closed_at) }}</span>
+            </div>
+            <div class="flex justify-between items-center font-bold text-[#0F172A]">
+              <span>Modal: {{ formatCurrency(rec.initial_cash) }}</span>
+              <span>Fisik Kas: {{ formatCurrency(rec.actual_cash) }}</span>
+            </div>
+            <div class="flex justify-between items-center font-mono">
+              <span class="text-[#64748B]">Selisih Tunai:</span>
+              <span :class="Number(rec.cash_difference) >= 0 ? 'text-[#10B981] font-bold' : 'text-[#F43F5E] font-bold'">
+                {{ Number(rec.cash_difference) >= 0 ? '+' : '' }}{{ formatCurrency(rec.cash_difference) }}
+              </span>
+            </div>
+            <div v-if="rec.notes" class="text-[11px] text-[#64748B] italic bg-white p-1.5 rounded border border-[#E2E8F0]">
+              Catatan: {{ rec.notes }}
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </template>

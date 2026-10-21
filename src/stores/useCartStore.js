@@ -14,36 +14,6 @@ export const useCartStore = defineStore('cart', () => {
   const isLoading = ref(false)
   const lastTransaction = ref(null)
 
-  const coinPackages = ref([
-    {
-      id: 'pkg-cuci-saja',
-      name: 'Cuci Saja',
-      price: 10000,
-      unit: 'paket',
-      description: 'Layanan Cuci Mesin Koin (Self Service)',
-      badge: 'Popular',
-      color: 'emerald'
-    },
-    {
-      id: 'pkg-cuci-kering-mandiri',
-      name: 'Cuci Kering Mandiri',
-      price: 20000,
-      unit: 'paket',
-      description: 'Cuci + Pengering Koin (Self Service)',
-      badge: 'Best Value',
-      color: 'teal'
-    },
-    {
-      id: 'pkg-cuci-kering-dropoff',
-      name: 'Cuci Kering Drop-Off',
-      price: 25000,
-      unit: 'paket',
-      description: 'Cuci + Kering + Dilipat oleh Staf',
-      badge: 'Full Service',
-      color: 'cyan'
-    }
-  ])
-
   const subtotal = computed(() => {
     return items.value.reduce((total, item) => total + (item.price * item.qty), 0)
   })
@@ -69,40 +39,39 @@ export const useCartStore = defineStore('cart', () => {
     return `TRX-${yy}${mm}${dd}-${randomHex}`
   }
 
-  function addCoinPackage(pkg) {
-    const existingIndex = items.value.findIndex(item => item.id === pkg.id)
+  function addServiceToCart(service, qty = 1) {
+    if (!service || !service.id) return
+    const quantity = parseFloat(qty)
+    if (isNaN(quantity) || quantity <= 0) return
+
+    const existingIndex = items.value.findIndex(item => item.id === service.id)
     if (existingIndex > -1) {
-      items.value[existingIndex].qty += 1
+      items.value[existingIndex].qty = parseFloat((items.value[existingIndex].qty + quantity).toFixed(2))
     } else {
       items.value.push({
-        id: pkg.id,
-        name: pkg.name,
-        price: pkg.price,
-        unit: pkg.unit || 'paket',
-        qty: 1,
-        type: 'coin'
+        id: service.id,
+        name: service.name,
+        price: Number(service.price || 0),
+        unit: service.unit || 'paket',
+        qty: parseFloat(quantity.toFixed(2)),
+        type: service.category || 'koin'
       })
     }
   }
 
-  function addKiloanService(weightInKg, pricePerKg = 7000, serviceName = 'Cuci Kiloan Reguler') {
+  function addCoinPackage(pkg) {
+    if (!pkg) return
+    addServiceToCart(pkg, 1)
+  }
+
+  function addKiloanService(weightInKg, service) {
     const qty = parseFloat(weightInKg)
     if (isNaN(qty) || qty <= 0) return
 
-    const kiloanId = 'kiloan-reguler'
-    const existingIndex = items.value.findIndex(item => item.id === kiloanId)
-
-    if (existingIndex > -1) {
-      items.value[existingIndex].qty = parseFloat((items.value[existingIndex].qty + qty).toFixed(2))
-    } else {
-      items.value.push({
-        id: kiloanId,
-        name: serviceName,
-        price: pricePerKg,
-        unit: 'kg',
-        qty: parseFloat(qty.toFixed(2)),
-        type: 'kiloan'
-      })
+    if (service && service.id) {
+      addServiceToCart(service, qty)
+    } else if (typeof service === 'object' && service?.price) {
+      addServiceToCart(service, qty)
     }
     manualInputVal.value = ''
   }
@@ -147,30 +116,36 @@ export const useCartStore = defineStore('cart', () => {
     try {
       const authStore = useAuthStore()
       const receiptNumber = generateReceiptNumber()
-      const fallbackTenantId = authStore.activeTenant?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
-      const fallbackUserId = authStore.currentUser?.id || 'ed0ab708-7d43-45cc-a6db-8714a599e950'
 
-      let tenantId = fallbackTenantId
-      let userId = fallbackUserId
+      let tenantId = authStore.user?.tenant_id || authStore.activeTenant?.id
+      let userId = authStore.user?.id
 
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
-          userId = session.user.id
-          tenantId = session.user.user_metadata?.tenant_id || session.user.app_metadata?.tenant_id || fallbackTenantId
+      if (!tenantId || !userId) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user) {
+            userId = userId || session.user.id
+            tenantId = tenantId || session.user.user_metadata?.tenant_id || session.user.app_metadata?.tenant_id
+          }
+        } catch (authErr) {
+          console.warn('Session auth fetch warning:', authErr)
         }
-      } catch (authErr) {
-        console.warn('Session auth fetch warning, using fallback IDs:', authErr)
+      }
+
+      if (!tenantId) {
+        throw new Error('Gagal menyimpan transaksi: ID Toko (tenant_id) tidak ditemukan. Silakan login kembali.')
       }
 
       // Determine service_type based on items
-      const hasCoin = items.value.some(i => i.type === 'coin')
+      const hasCoin = items.value.some(i => i.type === 'koin' || i.type === 'coin')
       const hasKiloan = items.value.some(i => i.type === 'kiloan')
       let serviceType = 'koin'
       if (hasCoin && hasKiloan) {
         serviceType = 'mixed'
       } else if (hasKiloan) {
         serviceType = 'kiloan'
+      } else {
+        serviceType = items.value[0]?.type || 'satuan'
       }
 
       const currentItems = [...items.value]
@@ -200,6 +175,7 @@ export const useCartStore = defineStore('cart', () => {
             const { data: custByPhone } = await supabase
               .from('customers')
               .select('*')
+              .eq('tenant_id', tenantId)
               .eq('phone', custPhone)
               .maybeSingle()
             existingCust = custByPhone
@@ -236,7 +212,6 @@ export const useCartStore = defineStore('cart', () => {
 
         // Update customer points_balance if customerId is available
         if (customerId && pointsEarned > 0) {
-          // Fetch current balance to be accurate
           const { data: currentCustData } = await supabase
             .from('customers')
             .select('points_balance')
@@ -361,12 +336,12 @@ export const useCartStore = defineStore('cart', () => {
     selectedCustomer,
     isGuest,
     manualInputVal,
-    coinPackages,
     isLoading,
     lastTransaction,
     subtotal,
     totalItemCount,
     formattedTotal,
+    addServiceToCart,
     addCoinPackage,
     addKiloanService,
     updateItemQty,
