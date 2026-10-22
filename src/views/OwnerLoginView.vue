@@ -28,7 +28,7 @@ const handleLogin = async () => {
     if (err.message) {
       errorMessage.value = err.message
     } else {
-      errorMessage.value = 'Username atau password tidak sesuai'
+      errorMessage.value = 'Username atau kata sandi tidak sesuai'
     }
   } finally {
     isLoading.value = false
@@ -106,10 +106,10 @@ const handleLogin = async () => {
         <div class="pt-2">
           <button
             type="submit"
-            :disabled="isLoading"
+            :disabled="isLoading || authStore.isLoading"
             class="w-full min-h-[52px] py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:translate-y-[2px] text-white font-bold text-base rounded-xl shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-all flex items-center justify-center space-x-2 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
           >
-            <span v-if="isLoading" class="flex items-center space-x-2">
+            <span v-if="isLoading || authStore.isLoading" class="flex items-center space-x-2">
               <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
