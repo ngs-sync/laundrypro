@@ -107,81 +107,24 @@ export const useAuthStore = defineStore('auth', () => {
   async function loginOwner({ username, password }) {
     isLoading.value = true
     try {
-      const cleanUsername = username ? username.trim() : ''
-      if (!cleanUsername) {
-        throw new Error('Username pemilik tidak ditemukan')
-      }
-
-      // Langkah 1: Kueri ke tabel public.users mencari user yang cocok dengan username dan role owner/superadmin
-      const { data: userData, error: userQueryError } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('username', cleanUsername)
-        .in('role', ['owner', 'superadmin'])
-        .maybeSingle()
-
-      if (userQueryError) {
-        console.warn('Gagal mencari user berdasarkan username:', userQueryError)
-      }
-
-      if (!userData) {
-        throw new Error('Username pemilik tidak ditemukan')
-      }
-
-      // Langkah 2: Ambil email yang terhubung dengan akun tersebut
-      let userEmail = userData.email
-
-      if (!userEmail) {
-        if (userData.auth_user_id && userData.auth_user_id.includes('@')) {
-          userEmail = userData.auth_user_id
-        } else if (userData.tenant_id) {
-          const tenantProfile = await fetchTenantProfile(userData.tenant_id)
-          if (tenantProfile && tenantProfile.tenant_code) {
-            userEmail = `${cleanUsername.toLowerCase()}.${tenantProfile.tenant_code.toLowerCase()}@laundrypro.app`
-          }
-        }
-      }
-
-      if (!userEmail) {
-        userEmail = `${cleanUsername.toLowerCase()}@laundrypro.app`
-      }
-
-      // Langkah 3: Eksekusi signInWithPassword
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: userEmail,
-        password
+      const { data: email, error: rpcError } = await supabase.rpc('get_login_email_by_username', {
+        p_username: username.trim()
       })
 
-      if (authError) {
+      if (rpcError || !email) {
         throw new Error('Username atau password tidak sesuai')
       }
 
-      if (!authData || !authData.user) {
-        throw new Error('Gagal melakukan autentikasi user.')
-      }
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+      })
 
-      // Langkah 4: Simpan sesi dan set state
-      const resolvedRole = userData.role || 'owner'
-      const resolvedTenantId = userData.tenant_id || null
+      if (authError) throw authError
 
-      user.value = {
-        id: userData.id || authData.user.id,
-        full_name: userData.full_name || authData.user.user_metadata?.full_name || authData.user.email,
-        role: resolvedRole,
-        tenant_id: resolvedTenantId
-      }
-      isAuthenticated.value = true
+      await initSession()
 
-      if (resolvedTenantId) {
-        await fetchTenantProfile(resolvedTenantId)
-      }
-
-      return authData
-    } catch (err) {
-      if (err.message === 'Username pemilik tidak ditemukan') {
-        throw err
-      }
-      throw new Error('Username atau password tidak sesuai')
+      return data
     } finally {
       isLoading.value = false
     }
