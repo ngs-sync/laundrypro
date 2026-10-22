@@ -107,12 +107,22 @@ export const useAuthStore = defineStore('auth', () => {
   async function loginOwner({ username, password }) {
     isLoading.value = true
     try {
+      const cleanUsername = username ? username.trim() : ''
+      if (!cleanUsername) {
+        throw new Error('Username tidak boleh kosong')
+      }
+
       const { data: email, error: rpcError } = await supabase.rpc('get_login_email_by_username', {
-        p_username: username.trim()
+        p_username: cleanUsername
       })
 
-      if (rpcError || !email) {
-        throw new Error('Username atau password tidak sesuai')
+      if (rpcError) {
+        console.error('RPC Error on get_login_email_by_username:', rpcError)
+        throw new Error(`Gagal memverifikasi username: ${rpcError.message || rpcError.code}`)
+      }
+
+      if (!email) {
+        throw new Error('Username atau kata sandi tidak sesuai')
       }
 
       const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -120,7 +130,12 @@ export const useAuthStore = defineStore('auth', () => {
         password: password
       })
 
-      if (authError) throw authError
+      if (authError) {
+        if (authError.message === 'Invalid login credentials' || authError.code === 'invalid_credentials') {
+          throw new Error('Username atau kata sandi tidak sesuai')
+        }
+        throw new Error(`Gagal masuk: ${authError.message}`)
+      }
 
       await initSession()
 
