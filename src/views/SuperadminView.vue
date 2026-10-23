@@ -165,7 +165,18 @@ async function handleCreateTenant() {
   }
 
   try {
-    const result = await superadminStore.createTenant(newTenant.value)
+    const payload = {
+      username: newTenant.value.owner_username || `owner_${newTenant.value.tenant_code.toLowerCase()}`,
+      password: newTenant.value.owner_password || "123456",
+      owner_name: newTenant.value.owner_name || `Owner ${newTenant.value.business_name}`,
+      name: newTenant.value.business_name,
+      tenant_code: newTenant.value.tenant_code,
+      plan_id: newTenant.value.plan_id,
+      address: newTenant.value.address || "",
+      phone: newTenant.value.phone_number || ""
+    }
+
+    const result = await superadminStore.createTenant(payload)
     registeredSuccessData.value = result
     showCreateModal.value = false
     showSuccessModal.value = true

@@ -106,80 +106,53 @@ export const useSuperadminStore = defineStore('superadmin', () => {
    */
   async function createTenant(payload) {
     isLoading.value = true
-    errorMessage.value = ''
+    errorMessage.value = ""
     try {
-      const newTenantData = {
-        business_name: payload.business_name || payload.name,
-        tenant_code: payload.tenant_code ? payload.tenant_code.trim().toUpperCase() : `LAUN${Math.floor(100 + Math.random() * 900)}`,
-        phone_number: payload.phone_number || payload.phone || '',
-        plan_id: payload.plan_id || null,
-        billing_type: payload.billing_type || 'monthly',
-        wallet_balance: Number(payload.wallet_balance) || 0,
-        subscription_status: payload.status || payload.subscription_status || 'active',
-        is_deleted: false,
-        created_at: new Date().toISOString()
-      }
-
-      const { data: tenantData, error: tenantError } = await supabase
-        .from('tenants')
-        .insert([newTenantData])
-        .select(`
-          *,
-          subscription_plans (*)
-        `)
-        .single()
-
-      let insertedTenant = tenantData
-
-      if (tenantError) {
-        console.warn('Error saving tenant to Supabase, fallback local:', tenantError)
-        insertedTenant = {
-          ...newTenantData,
-          id: `tenant-${Date.now()}`,
-          subscription_plans: plans.value.find(p => p.id === newTenantData.plan_id) || null
+      const { data, error } = await supabase.functions.invoke("create-owner", {
+        body: {
+          username: payload.username,
+          password: payload.password,
+          full_name: payload.owner_name,
+          tenant_name: payload.name,
+          tenant_code: payload.tenant_code,
+          plan_id: payload.plan_id,
+          address: payload.address,
+          phone: payload.phone
         }
+      })
+
+      if (error || data?.error) {
+        throw new Error(data?.error || error.message)
       }
 
-      // Buat akun owner di tabel `users`
-      const ownerUsername = payload.owner_username || `owner_${insertedTenant.tenant_code.toLowerCase()}`
-      const newOwnerUser = {
-        tenant_id: insertedTenant.id,
-        full_name: payload.owner_name || `Owner ${insertedTenant.business_name}`,
-        username: ownerUsername,
-        role: 'owner',
-        is_active: true,
-        created_at: new Date().toISOString()
+      // Perbarui daftar tenants di state store
+      await fetchTenants()
+
+      const createdTenant = data?.tenant || data?.data?.tenant || tenants.value.find(t => t.tenant_code === payload.tenant_code) || {
+        business_name: payload.name,
+        tenant_code: payload.tenant_code,
+        phone_number: payload.phone
       }
 
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .insert([newOwnerUser])
-        .select('*')
-
-      if (userError) {
-        console.warn('Error saving owner user to Supabase:', userError)
+      const createdOwner = data?.user || data?.owner || data?.data?.owner || {
+        username: payload.username,
+        full_name: payload.owner_name
       }
-
-      // Tambahkan ke state lokal
-      tenants.value.unshift(insertedTenant)
 
       return {
-        tenant: insertedTenant,
-        owner: userData ? userData[0] : newOwnerUser,
-        initialPassword: payload.owner_password || '123456'
+        tenant: createdTenant,
+        owner: createdOwner,
+        initialPassword: payload.password
       }
     } catch (err) {
-      console.error('Error in createTenant:', err)
-      errorMessage.value = err.message || 'Gagal mendaftarkan toko baru.'
+      console.error("Error in createTenant:", err)
+      errorMessage.value = err.message || "Gagal mendaftarkan toko baru."
       throw err
     } finally {
       isLoading.value = false
     }
   }
 
-  /**
-   * Action updateTenant(id, payload): Update status (active/trial/suspended), plan_id, atau saldo wallet_balance.
-   */
   async function updateTenant(id, payload) {
     isLoading.value = true
     errorMessage.value = ''
