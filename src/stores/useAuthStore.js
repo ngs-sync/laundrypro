@@ -107,27 +107,18 @@ export const useAuthStore = defineStore('auth', () => {
   async function loginOwner({ username, password }) {
     isLoading.value = true
     try {
-      const cleanUsername = username ? username.trim() : ''
+      const cleanUsername = username ? username.trim().toLowerCase() : ''
       if (!cleanUsername) {
         throw new Error('Username tidak boleh kosong')
       }
 
-      const { data: email, error: rpcError } = await supabase.rpc('get_login_email_by_username', {
-        p_username: cleanUsername
-      })
+      // Format email virtual berbasis username untuk autentikasi Supabase
+      const email = `${cleanUsername}@owner.laundrypro.app`
 
-      if (rpcError) {
-        console.error('RPC Error on get_login_email_by_username:', rpcError)
-        throw new Error(`Gagal memverifikasi username: ${rpcError.message || rpcError.code}`)
-      }
-
-      if (!email) {
-        throw new Error('Username atau kata sandi tidak sesuai')
-      }
-
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: password
+      // Eksekusi signInWithPassword secara langsung tanpa query manual SELECT ke tabel users di awal
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
       })
 
       if (authError) {
@@ -137,9 +128,49 @@ export const useAuthStore = defineStore('auth', () => {
         throw new Error(`Gagal masuk: ${authError.message}`)
       }
 
-      await initSession()
+      if (!authData?.user) {
+        throw new Error('Gagal melakukan autentikasi user.')
+      }
 
-      return data
+      const currentUserId = authData.user.id
+
+      // Ambil relasi cabang user dari tabel tenant_users
+      const { data: tenantUsers, error: tuError } = await supabase
+        .from('tenant_users')
+        .select('*, tenants(*)')
+        .eq('user_id', currentUserId)
+
+      let ownedTenants = []
+      if (!tuError && tenantUsers && tenantUsers.length > 0) {
+        ownedTenants = tenantUsers
+          .map(tu => tu.tenants)
+          .filter(t => t && !t.is_deleted)
+      }
+
+      // Fallback jika tenant_users belum terisi, coba query dari tabel tenants
+      if (ownedTenants.length === 0) {
+        const { data: directTenants } = await supabase
+          .from('tenants')
+          .select('*')
+          .eq('owner_user_id', currentUserId)
+          .eq('is_deleted', false)
+        if (directTenants && directTenants.length > 0) {
+          ownedTenants = directTenants
+        }
+      }
+
+      const firstTenant = ownedTenants[0] || null
+      activeTenant.value = firstTenant
+
+      user.value = {
+        id: currentUserId,
+        full_name: authData.user.user_metadata?.full_name || cleanUsername,
+        role: 'owner',
+        tenant_id: firstTenant?.id || null
+      }
+      isAuthenticated.value = true
+
+      return authData
     } finally {
       isLoading.value = false
     }
@@ -239,6 +270,17 @@ export const useAuthStore = defineStore('auth', () => {
       if (session?.user) {
         const authUser = session.user
 
+        // Ambil relasi tenant_users jika ada
+        const { data: tenantUsers } = await supabase
+          .from('tenant_users')
+          .select('*, tenants(*)')
+          .eq('user_id', authUser.id)
+
+        let ownedTenants = []
+        if (tenantUsers && tenantUsers.length > 0) {
+          ownedTenants = tenantUsers.map(tu => tu.tenants).filter(t => t && !t.is_deleted)
+        }
+
         const { data: userProfile } = await supabase
           .from('users')
           .select('*')
@@ -250,14 +292,14 @@ export const useAuthStore = defineStore('auth', () => {
         if (!resolvedRole) {
           if (authUser.email?.toLowerCase().includes('superadmin')) {
             resolvedRole = 'superadmin'
-          } else if (userProfile) {
+          } else if (ownedTenants.length > 0 || authUser.email?.endsWith('@owner.laundrypro.app')) {
             resolvedRole = 'owner'
           } else {
             resolvedRole = 'staff'
           }
         }
 
-        const resolvedTenantId = userProfile?.tenant_id || authUser.user_metadata?.tenant_id || null
+        const resolvedTenantId = ownedTenants[0]?.id || userProfile?.tenant_id || authUser.user_metadata?.tenant_id || null
 
         user.value = {
           id: userProfile?.id || authUser.id,
@@ -267,7 +309,9 @@ export const useAuthStore = defineStore('auth', () => {
         }
         isAuthenticated.value = true
 
-        if (resolvedTenantId) {
+        if (ownedTenants.length > 0) {
+          activeTenant.value = ownedTenants[0]
+        } else if (resolvedTenantId) {
           await fetchTenantProfile(resolvedTenantId)
         }
       } else {
