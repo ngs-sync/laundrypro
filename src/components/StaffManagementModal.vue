@@ -56,7 +56,7 @@ watch([() => props.show, () => props.staffToEdit], ([showVal, staffVal]) => {
 
 async function handleSubmit() {
   if (!form.value.full_name.trim() || !form.value.username.trim() || !form.value.tenant_id) {
-    submitError.value = 'Mohon lengkapi Nama Lengkap, Username, dan Cabang.'
+    submitError.value = 'Mohon lengkapi Nama Lengkap, Username, dan Cabang Penugasan.'
     return
   }
 
@@ -125,10 +125,10 @@ async function handleSubmit() {
 
       <!-- Form Body -->
       <form @submit.prevent="handleSubmit" class="flex flex-col gap-4">
-        <!-- Penugasan Ke Cabang -->
+        <!-- Pilih Cabang Penugasan -->
         <div>
           <label class="block text-xs font-bold uppercase text-[#64748B] mb-1">
-            Tugaskan ke Cabang <span class="text-rose-500">*</span>
+            Pilih Cabang Penugasan <span class="text-rose-500">*</span>
           </label>
           <select
             v-model="form.tenant_id"
@@ -140,7 +140,7 @@ async function handleSubmit() {
               :key="b.id"
               :value="b.id"
             >
-              🏪 {{ b.business_name || b.name }} (Kode: {{ b.tenant_code || 'LAUN' }})
+              🏪 {{ b.business_name || b.name }} (Kode Cabang: {{ b.tenant_code || 'LAUN' }})
             </option>
           </select>
         </div>

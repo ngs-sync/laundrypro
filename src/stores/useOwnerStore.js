@@ -54,24 +54,45 @@ export const useOwnerStore = defineStore('owner', () => {
     return branches.value.length < maxOutlets.value
   })
 
-  // Fetch branches for logged in owner user
+  // Fetch branches for logged in owner user from tenant_users table where role_in_tenant = 'owner'
   async function fetchBranches() {
     try {
       const { data: sessionData } = await supabase.auth.getSession()
       const authUserId = sessionData?.session?.user?.id || authStore.user?.id
 
       if (authUserId) {
-        // Query tenants where owner_user_id matches
-        const { data: directTenants, error: directErr } = await supabase
-          .from('tenants')
-          .select('*, subscription_plans(*)')
-          .eq('owner_user_id', authUserId)
-          .eq('is_deleted', false)
+        // Query tenant_users table where role_in_tenant = 'owner' and user_id matches
+        const { data: tuRecords, error: tuErr } = await supabase
+          .from('tenant_users')
+          .select('*, tenants(*, subscription_plans(*))')
+          .eq('role_in_tenant', 'owner')
+          .eq('user_id', authUserId)
 
-        if (!directErr && directTenants && directTenants.length > 0) {
-          branches.value = directTenants
-        } else {
-          // Fallback via users table
+        if (!tuErr && tuRecords && tuRecords.length > 0) {
+          const tenantList = tuRecords
+            .map(tu => tu.tenants)
+            .filter(t => t && !t.is_deleted)
+
+          if (tenantList.length > 0) {
+            branches.value = tenantList
+          }
+        }
+
+        // Fallback: direct query to tenants table by owner_user_id
+        if (branches.value.length === 0) {
+          const { data: directTenants, error: directErr } = await supabase
+            .from('tenants')
+            .select('*, subscription_plans(*)')
+            .eq('owner_user_id', authUserId)
+            .eq('is_deleted', false)
+
+          if (!directErr && directTenants && directTenants.length > 0) {
+            branches.value = directTenants
+          }
+        }
+
+        // Fallback 2: via users table
+        if (branches.value.length === 0) {
           const { data: userRecords, error: userError } = await supabase
             .from('users')
             .select('tenant_id, tenants(*, subscription_plans(*))')
@@ -119,6 +140,10 @@ export const useOwnerStore = defineStore('owner', () => {
   function setActiveBranch(branchId) {
     activeBranchId.value = branchId
     localStorage.setItem('owner_active_branch_id', branchId)
+    const selected = branches.value.find(b => b.id === branchId)
+    if (selected) {
+      authStore.activeTenant = selected
+    }
     fetchAllOwnerData()
   }
 
@@ -151,6 +176,11 @@ export const useOwnerStore = defineStore('owner', () => {
     isLoading.value = true
     errorMessage.value = ''
 
+    if (!canAddBranch.value) {
+      isLoading.value = false
+      throw new Error('Kuota cabang telah mencapai batas maksimal paket Anda.')
+    }
+
     const cleanCode = payload.tenant_code.replace(/\s+/g, '').toUpperCase()
     const { data: sessionData } = await supabase.auth.getSession()
     const currentAuthUserId = sessionData?.session?.user?.id || authStore.user?.id || null
@@ -170,6 +200,7 @@ export const useOwnerStore = defineStore('owner', () => {
     }
 
     try {
+      // 1. Insert cabang baru ke tabel tenants
       const { data: tenantData, error: tenantError } = await supabase
         .from('tenants')
         .insert([newBranchData])
@@ -187,7 +218,23 @@ export const useOwnerStore = defineStore('owner', () => {
         }
       }
 
-      // Inject standard default services (Koin & Kiloan) for the new branch
+      // 2. Insert relasi ke tenant_users dengan user_id = authUserId, tenant_id = newTenant.id, dan role_in_tenant = 'owner'
+      if (insertedBranch && currentAuthUserId) {
+        const { error: tuErr } = await supabase
+          .from('tenant_users')
+          .insert([{
+            user_id: currentAuthUserId,
+            tenant_id: insertedBranch.id,
+            role_in_tenant: 'owner',
+            created_at: new Date().toISOString()
+          }])
+
+        if (tuErr) {
+          console.warn('Error inserting tenant_users relation:', tuErr)
+        }
+      }
+
+      // 3. Salin/inject template layanan standar (koin, kiloan, satuan) ke tabel services untuk cabang baru tersebut
       const defaultServices = [
         {
           tenant_id: insertedBranch.id,
@@ -215,6 +262,15 @@ export const useOwnerStore = defineStore('owner', () => {
           unit: 'paket',
           is_active: true,
           created_at: new Date().toISOString()
+        },
+        {
+          tenant_id: insertedBranch.id,
+          name: 'Cuci Bedcover Satuan',
+          category: 'satuan',
+          price: 35000,
+          unit: 'pcs',
+          is_active: true,
+          created_at: new Date().toISOString()
         }
       ]
 
@@ -226,9 +282,10 @@ export const useOwnerStore = defineStore('owner', () => {
         console.warn('Error injecting standard services:', serviceErr)
       }
 
-      // Update local state
+      // 4. Perbarui daftar cabang dan alihkan activeTenant / activeBranchId ke cabang baru tersebut
       branches.value.push(insertedBranch)
       setActiveBranch(insertedBranch.id)
+      authStore.activeTenant = insertedBranch
 
       return insertedBranch
     } catch (err) {
@@ -240,7 +297,7 @@ export const useOwnerStore = defineStore('owner', () => {
     }
   }
 
-  // Fetch Staff list for owner's branches
+  // Fetch Staff list for owner's branches from tenant_users and users
   async function fetchStaff() {
     try {
       const branchIds = branches.value.map(b => b.id)
@@ -249,6 +306,7 @@ export const useOwnerStore = defineStore('owner', () => {
         return
       }
 
+      // Query users table for staff assigned to owner's branches
       const { data, error } = await supabase
         .from('users')
         .select('*, tenants(business_name, tenant_code)')
@@ -264,7 +322,7 @@ export const useOwnerStore = defineStore('owner', () => {
     }
   }
 
-  // Create Staff assigned to specific branch
+  // Create Staff assigned to specific branch and save link in tenant_users with role_in_tenant = 'cashier'
   async function createStaff(payload) {
     isLoading.value = true
     const assignedTenant = branches.value.find(b => b.id === payload.tenant_id) || branches.value[0] || {}
@@ -304,17 +362,37 @@ export const useOwnerStore = defineStore('owner', () => {
     }
 
     try {
+      // Save profile in users table
       const { data, error } = await supabase
         .from('users')
         .insert([newStaffUser])
         .select('*, tenants(business_name, tenant_code)')
 
+      let savedRecord = null
       if (!error && data && data.length > 0) {
-        staffList.value.unshift(data[0])
+        savedRecord = data[0]
+        staffList.value.unshift(savedRecord)
       } else {
         newStaffUser.id = `staff-${Date.now()}`
         newStaffUser.tenants = { business_name: assignedTenant?.business_name, tenant_code: assignedTenant?.tenant_code }
-        staffList.value.unshift(newStaffUser)
+        savedRecord = newStaffUser
+        staffList.value.unshift(savedRecord)
+      }
+
+      // Save assignment link in tenant_users table with role_in_tenant = 'cashier'
+      const targetUserId = createdAuthUserId || savedRecord?.id
+      if (targetUserId && payload.tenant_id) {
+        const { error: tuErr } = await supabase
+          .from('tenant_users')
+          .insert([{
+            user_id: targetUserId,
+            tenant_id: payload.tenant_id,
+            role_in_tenant: 'cashier',
+            created_at: new Date().toISOString()
+          }])
+        if (tuErr) {
+          console.warn('Error inserting cashier into tenant_users:', tuErr)
+        }
       }
     } catch (err) {
       console.warn('Local save for createStaff:', err)
@@ -326,10 +404,11 @@ export const useOwnerStore = defineStore('owner', () => {
     }
   }
 
-  // Update Staff Details
+  // Update Staff Details and tenant_users assignment
   async function updateStaff(id, payload) {
     isLoading.value = true
     const staffIndex = staffList.value.findIndex(s => s.id === id)
+    const currentStaff = staffList.value[staffIndex]
     const assignedTenant = branches.value.find(b => b.id === payload.tenant_id)
 
     const updates = {
@@ -353,6 +432,22 @@ export const useOwnerStore = defineStore('owner', () => {
         .from('users')
         .update(updates)
         .eq('id', id)
+
+      // Update assignment link in tenant_users
+      const targetUserId = currentStaff?.auth_user_id || id
+      if (targetUserId && payload.tenant_id) {
+        const { error: tuErr } = await supabase
+          .from('tenant_users')
+          .upsert([{
+            user_id: targetUserId,
+            tenant_id: payload.tenant_id,
+            role_in_tenant: 'cashier',
+            updated_at: new Date().toISOString()
+          }], { onConflict: 'user_id, tenant_id' })
+        if (tuErr) {
+          console.warn('Error upserting cashier in tenant_users:', tuErr)
+        }
+      }
     } catch (err) {
       console.warn('Local update for staff:', err)
     } finally {

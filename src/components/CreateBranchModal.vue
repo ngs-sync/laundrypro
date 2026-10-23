@@ -154,7 +154,7 @@ async function handleSubmit() {
         <a
           :href="waSuperadminUrl"
           target="_blank"
-          class="w-full py-3 bg-[#25D366] hover:bg-[#128C7E] text-white font-extrabold text-xs rounded-xl shadow-md transition-all active:translate-y-[2px] flex items-center justify-center gap-2 mt-2"
+          class="w-full min-h-[52px] py-3 bg-[#25D366] hover:bg-[#128C7E] text-white font-extrabold text-sm rounded-xl shadow-md transition-all active:translate-y-[2px] flex items-center justify-center gap-2 mt-2"
         >
           <span>💬</span>
           <span>Upgrade Paket via WA Superadmin</span>
